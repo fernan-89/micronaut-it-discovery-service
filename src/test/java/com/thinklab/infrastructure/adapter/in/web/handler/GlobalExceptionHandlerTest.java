@@ -3,6 +3,7 @@ package com.thinklab.infrastructure.adapter.in.web.handler;
 import com.thinklab.domain.exception.DiscoveredItemNotFoundException;
 import com.thinklab.domain.exception.DuplicateDiscoveredItemException;
 import com.thinklab.domain.exception.InvalidDiscoveredItemStatusException;
+import com.thinklab.domain.exception.PromotionValidationException;
 import io.micronaut.http.HttpHeaders;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
@@ -72,12 +73,22 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("InvalidDiscoveredItemStatusException maps to 409 Conflict with ERR-DSC-00409 (AST-03)")
+    @DisplayName("InvalidDiscoveredItemStatusException maps to 409 Conflict with ERR-DSC-00409")
     void stateConflictIs409() {
         Map<String, Object> body = assertProblem(exceptionHandler.handle(request, new InvalidDiscoveredItemStatusException("Illegal transition")),
                 HttpStatus.CONFLICT, "ERR-DSC-00409");
 
         assertEquals("Illegal transition", body.get("detail"));
+    }
+
+    @Test
+    @DisplayName("PromotionValidationException maps to 422 with ERR-DSC-00422 and carries the relayed violations list")
+    void promotionValidation() {
+        Map<String, Object> body = assertProblem(
+                exceptionHandler.handle(request, new PromotionValidationException("Schema violated", java.util.List.of("$.cpu: is missing"))),
+                HttpStatus.UNPROCESSABLE_ENTITY, "ERR-DSC-00422");
+
+        assertEquals(java.util.List.of("$.cpu: is missing"), body.get("violations"));
     }
 
     @Test

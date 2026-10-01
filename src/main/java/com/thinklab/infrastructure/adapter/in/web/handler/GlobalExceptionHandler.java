@@ -1,6 +1,7 @@
 package com.thinklab.infrastructure.adapter.in.web.handler;
 
 import com.thinklab.domain.exception.BusinessException;
+import com.thinklab.domain.exception.PromotionValidationException;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.http.HttpRequest;
 import io.micronaut.http.HttpResponse;
@@ -27,8 +28,15 @@ import java.util.UUID;
  * Directory Service Domains' exception handler, so every platform service emits an identical
  * RFC 7807 "Problem Details" shape (including {@code error_code}).
  *
- * <p><b>HTTP 409 State Conflict (AST-03, ADR-019):</b> an illegal DiscoveredItem lifecycle transition, like a duplicate serial number, is a well-formed request that collides with the current state, so both map to 409 Conflict ({@code ERR-DSC-00409}) — the same contract as every other Service Domain.
+ * <p><b>HTTP 409 State Conflict (ADR-019):</b> an illegal lifecycle transition and a relayed 404/409
+ * from {@code it-asset-registry-service} during {@code control/promote} (ADR-032) are both well-formed
+ * requests that collide with the current state, so they map to 409 Conflict ({@code ERR-DSC-00409}) —
+ * the same contract as every other Service Domain.
  *
+ * <p><b>HTTP 422 Promotion Validation (ADR-032):</b> a relayed 422 from {@code it-asset-registry-service}
+ * during {@code control/promote} — the suggested specifications violate the tenant's configured schema
+ * — maps to 422 Unprocessable Entity ({@code ERR-DSC-00422}) and carries the downstream
+ * {@code violations} list as an extension member.
  */
 @Produces
 @Singleton
@@ -88,6 +96,7 @@ public class GlobalExceptionHandler implements ExceptionHandler<Throwable, HttpR
     private HttpResponse<Map<String, Object>> handleBusinessException(BusinessException ex, String path) {
         HttpStatus status = switch (ex.getErrorCode()) {
             case "ERR-DSC-00404" -> HttpStatus.NOT_FOUND;
+            case "ERR-DSC-00422" -> HttpStatus.UNPROCESSABLE_ENTITY;
             default -> HttpStatus.CONFLICT;
         };
 
@@ -99,6 +108,10 @@ public class GlobalExceptionHandler implements ExceptionHandler<Throwable, HttpR
                 ex.getMessage(),
                 path
         );
+
+        if (ex instanceof PromotionValidationException promotionEx) {
+            problem.put("violations", promotionEx.getViolations());
+        }
 
         return HttpResponse.status(status).body(problem);
     }

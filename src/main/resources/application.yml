@@ -32,8 +32,8 @@ micronaut:
     services:
       hash-service:
         url: ${HASH_SERVICE_URL:`http://localhost:8080`}
-      ci-type-catalog-service:
-        url: ${CI_TYPE_CATALOG_SERVICE_URL:`http://localhost:8093`}
+      asset-registry-service:
+        url: ${ASSET_REGISTRY_SERVICE_URL:`http://localhost:8083`}
 
   # ----------------------------------------------------------------------------------------------
   # /**
@@ -146,12 +146,12 @@ integrations:
     url: ${HASH_SERVICE_URL:`http://localhost:8080`}
     read-timeout: 2s
     connect-timeout: 1s
-  # Fails open (ADR-027): "not configured" and "unreachable" both skip specification validation
-  # rather than blocking an DiscoveredItem write, so a short timeout here keeps that fail-open path fast.
-  ci-type-catalog:
-    url: ${CI_TYPE_CATALOG_SERVICE_URL:`http://localhost:8093`}
-    read-timeout: 2s
-    connect-timeout: 1s
+  # control/promote only; never fail-open (ADR-032) - a downstream failure here must surface as a
+  # clear, retryable error, so this is a normal timeout, not a short fail-fast one.
+  asset-registry:
+    url: ${ASSET_REGISTRY_SERVICE_URL:`http://localhost:8083`}
+    read-timeout: 5s
+    connect-timeout: 2s
 
 # ----------------------------------------------------------------------------------------------
 # /**
@@ -179,10 +179,9 @@ thinklab:
     client-secret: ${THINKLAB_CLIENT_SECRET:}
 
   # ----------------------------------------------------------------------------------------------
-  # Event backbone (kit ADR-003). This service is a consumer only, of it-hardware-maintenance's
-  # repair-started/repair-completed events (ADR-034 of that service) - it moves the affected DiscoveredItem
-  # into/out of MAINTENANCE via the existing ControlDiscoveredItemUseCase, never a new DiscoveredItem domain method.
-  # Off by default; set THINKLAB_EVENTS_ENABLED=true to consume from NATS JetStream locally.
+  # Event backbone (kit ADR-003). Unused in v1 of this Service Domain - discovery is ingested purely
+  # via the synchronous initiate API, never an event subscription (ADR-030). Left wired, off by
+  # default, for parity with every other service's kit baseline.
   # ----------------------------------------------------------------------------------------------
   events:
     enabled: ${THINKLAB_EVENTS_ENABLED:false}

@@ -1,0 +1,1115 @@
+{
+  "info": {
+    "_postman_id": "b2c4d6e8-5a7b-4c9d-8e1f-2a4b6c8d0e1f",
+    "name": "IT Discovery Service - Staging & Promotion Suite",
+    "description": "Enterprise-grade E2E Postman Suite for the IT Discovery Service Domain (BIAN-aligned, ADR-001/005/013/019/030/031/032). Covers the DiscoveredItem lifecycle under /it-discovery/v1 (initiate, retrieve, review/claim, review/update, control/ignore, control/promote), idempotent re-ingestion (RESEEN), the real cross-service promotion into it-asset-registry-service, mandatory X-Tenant-Id/X-Executor auditing, RFC 7807 error_code assertions (400/404/409) and W3C traceparent correlation. Requires an organisationId environment variable populated from the Party Reference Data Directory Service Domain, and a live it-asset-registry-service for the promotion step.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "39879181"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Automatically generate standard W3C traceparent (ADR-010) and X-Trace-Id",
+          "function generateHex(len) {",
+          "    let result = '';",
+          "    const chars = '0123456789abcdef';",
+          "    for (let i = 0; i < len; i++) {",
+          "        result += chars.charAt(Math.floor(Math.random() * chars.length));",
+          "    }",
+          "    return result;",
+          "}",
+          "const traceId = generateHex(32);",
+          "const spanId = generateHex(16);",
+          "const traceparent = `00-${traceId}-${spanId}-01`;",
+          "pm.request.headers.upsert({ key: 'traceparent', value: traceparent });",
+          "pm.request.headers.upsert({ key: 'X-Trace-Id', value: traceId });",
+          "pm.environment.set('currentTraceId', traceId);"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "00. Infrastructure & Telemetry",
+      "item": [
+        {
+          "name": "Health Check (Aggregated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Health status is UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Liveness Probe",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Liveness status is UP or UNKNOWN (no probe contributors registered)', () => pm.expect(['UP', 'UNKNOWN']).to.include(pm.response.json().status));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/liveness",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health",
+                "liveness"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Readiness Probe",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Readiness status is UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/readiness",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health",
+                "readiness"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Prometheus Metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Contains JVM metrics', () => pm.expect(pm.response.text()).to.include('jvm_memory'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/prometheus",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "prometheus"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Swagger UI",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Returns Swagger UI HTML', () => pm.expect(pm.response.text()).to.include('swagger-ui'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/swagger-ui/index.html",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "swagger-ui",
+                "index.html"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01. Lifecycle & Promotion (BIAN Behavior Qualifiers)",
+      "item": [
+        {
+          "name": "01. Initiate DiscoveredItem (ingest, Control Record)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('externalKey', 'AA:BB:CC:' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201 Created', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "pm.test('UUID present, status DISCOVERED', () => {",
+                  "    pm.expect(json.id).to.not.be.undefined;",
+                  "    pm.expect(json.status).to.eql('DISCOVERED');",
+                  "    pm.expect(json.suggestedCategory).to.be.null;",
+                  "});",
+                  "pm.environment.set('itemId', json.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{organisationId}}"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "initiate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"manual\",\n  \"externalKey\": \"{{externalKey}}\",\n  \"name\": \"Mystery Box\",\n  \"rawAttributes\": {\n    \"mac\": \"{{externalKey}}\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "02. Retrieve DiscoveredItem By ID (Confirm DISCOVERED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('status is DISCOVERED', () => pm.expect(json.status).to.eql('DISCOVERED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/retrieve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "retrieve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "03. Re-Initiate the Same Key (Idempotent RESEEN, 200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Same id, refreshed attributes, still DISCOVERED', () => {",
+                  "    pm.expect(json.id).to.eql(pm.environment.get('itemId'));",
+                  "    pm.expect(json.rawAttributes.vendor).to.eql('Dell');",
+                  "    pm.expect(json.status).to.eql('DISCOVERED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{organisationId}}"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "initiate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"manual\",\n  \"externalKey\": \"{{externalKey}}\",\n  \"name\": \"Mystery Box\",\n  \"rawAttributes\": {\n    \"mac\": \"{{externalKey}}\",\n    \"vendor\": \"Dell\"\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "04. Review: Claim (DISCOVERED -> UNDER_REVIEW)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/review/claim",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "review",
+                "claim"
+              ]
+            }
+          }
+        },
+        {
+          "name": "05. Retrieve DiscoveredItem By ID (Confirm UNDER_REVIEW)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('status is UNDER_REVIEW', () => pm.expect(pm.response.json().status).to.eql('UNDER_REVIEW'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/retrieve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "retrieve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "06. Review: Update (record a suggestedCategory)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/review/update",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "review",
+                "update"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"suggestedCategory\": \"SERVER\"\n}"
+            }
+          }
+        },
+        {
+          "name": "07. Retrieve DiscoveredItem By ID (Confirm suggestedCategory)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('suggestedCategory is SERVER', () => pm.expect(pm.response.json().suggestedCategory).to.eql('SERVER'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/retrieve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "retrieve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "08. Control: Promote (UNDER_REVIEW -> PROMOTED, creates a real Asset)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('PROMOTED with a real promotedAssetId', () => {",
+                  "    pm.expect(json.status).to.eql('PROMOTED');",
+                  "    pm.expect(json.promotedAssetId).to.not.be.null;",
+                  "});",
+                  "pm.environment.set('promotedAssetId', json.promotedAssetId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/control/promote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "control",
+                "promote"
+              ]
+            }
+          }
+        },
+        {
+          "name": "09. Retrieve Audit Ledger (in order, ending with PROMOTED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Ledger records every mutation in order', () => {",
+                  "    pm.expect(json).to.be.an('array').with.lengthOf(5);",
+                  "    pm.expect(json[0].action).to.eql('DISCOVERED');",
+                  "    pm.expect(json[json.length - 1].action).to.eql('PROMOTED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{itemId}}/audit-log/retrieve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{itemId}}",
+                "audit-log",
+                "retrieve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "10. Retrieve All DiscoveredItems (Tenant Scoped, status=PROMOTED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Every item is PROMOTED and ours is included', () => {",
+                  "    pm.expect(json).to.be.an('array').that.is.not.empty;",
+                  "    json.forEach(i => pm.expect(i.status).to.eql('PROMOTED'));",
+                  "    pm.expect(json.some(i => i.id === pm.environment.get('itemId'))).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{organisationId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/retrieve?status=PROMOTED",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "retrieve"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "PROMOTED"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Negative Tests & Boundary Validation",
+      "item": [
+        {
+          "name": "01. Initiate - Missing Source (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-VALIDATION-00400', () => {",
+                  "    pm.expect(json.status).to.eql(400);",
+                  "    pm.expect(json.error_code).to.eql('ERR-VALIDATION-00400');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{organisationId}}"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "initiate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"externalKey\": \"k\",\n  \"name\": \"n\"\n}"
+            }
+          }
+        },
+        {
+          "name": "02. Initiate - Missing External Key (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-VALIDATION-00400', () => {",
+                  "    pm.expect(json.status).to.eql(400);",
+                  "    pm.expect(json.error_code).to.eql('ERR-VALIDATION-00400');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{organisationId}}"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "initiate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"manual\",\n  \"name\": \"n\"\n}"
+            }
+          }
+        },
+        {
+          "name": "03. Initiate - Missing X-Tenant-Id Header (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "initiate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"manual\",\n  \"externalKey\": \"SN-BAD\",\n  \"name\": \"Bad\"\n}"
+            }
+          }
+        },
+        {
+          "name": "04. Retrieve - Non-existent UUID (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-DSC-00404', () => {",
+                  "    pm.expect(json.status).to.eql(404);",
+                  "    pm.expect(json.error_code).to.eql('ERR-DSC-00404');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/00000000-0000-0000-0000-000000000000/retrieve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "00000000-0000-0000-0000-000000000000",
+                "retrieve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "05. Retrieve - Malformed UUID Path (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/not-a-uuid/retrieve",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "not-a-uuid",
+                "retrieve"
+              ]
+            }
+          }
+        },
+        {
+          "name": "06. Setup: Initiate DiscoveredItem for Illegal-Transition Tests",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('illegalKey', 'IL:' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.environment.set('illegalItemId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-Id",
+                "value": "{{organisationId}}"
+              },
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/initiate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "initiate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"manual\",\n  \"externalKey\": \"{{illegalKey}}\",\n  \"name\": \"Illegal Transition Box\"\n}"
+            }
+          }
+        },
+        {
+          "name": "07. Control: Promote a DISCOVERED Item (not claimed) - Illegal (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-DSC-00409', () => {",
+                  "    pm.expect(json.status).to.eql(409);",
+                  "    pm.expect(json.error_code).to.eql('ERR-DSC-00409');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{illegalItemId}}/control/promote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{illegalItemId}}",
+                "control",
+                "promote"
+              ]
+            }
+          }
+        },
+        {
+          "name": "08. Review: Claim (Setup)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{illegalItemId}}/review/claim",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{illegalItemId}}",
+                "review",
+                "claim"
+              ]
+            }
+          }
+        },
+        {
+          "name": "09. Control: Promote Without a suggestedCategory - Illegal (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-DSC-00409', () => {",
+                  "    pm.expect(json.status).to.eql(409);",
+                  "    pm.expect(json.error_code).to.eql('ERR-DSC-00409');",
+                  "});",
+                  "pm.test('Detail explains the missing suggestedCategory', () => pm.expect(json.detail).to.include('suggestedCategory'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{illegalItemId}}/control/promote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{illegalItemId}}",
+                "control",
+                "promote"
+              ]
+            }
+          }
+        },
+        {
+          "name": "10. Control: Ignore (UNDER_REVIEW -> IGNORED, terminal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{illegalItemId}}/control/ignore",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{illegalItemId}}",
+                "control",
+                "ignore"
+              ]
+            }
+          }
+        },
+        {
+          "name": "11. Control: Promote an IGNORED Item - Illegal (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-DSC-00409', () => {",
+                  "    pm.expect(json.status).to.eql(409);",
+                  "    pm.expect(json.error_code).to.eql('ERR-DSC-00409');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{illegalItemId}}/control/promote",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{illegalItemId}}",
+                "control",
+                "promote"
+              ]
+            }
+          }
+        },
+        {
+          "name": "12. Review: Claim an Already-IGNORED Item - Illegal (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));",
+                  "const json = pm.response.json();",
+                  "pm.test('RFC 7807 error_code is ERR-DSC-00409', () => {",
+                  "    pm.expect(json.status).to.eql(409);",
+                  "    pm.expect(json.error_code).to.eql('ERR-DSC-00409');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-Executor",
+                "value": "{{executor}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/it-discovery/v1/{{illegalItemId}}/review/claim",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "it-discovery",
+                "v1",
+                "{{illegalItemId}}",
+                "review",
+                "claim"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8091"
+    }
+  ]
+}
