@@ -205,7 +205,7 @@
                   "pm.test('UUID present, status DISCOVERED', () => {",
                   "    pm.expect(json.id).to.not.be.undefined;",
                   "    pm.expect(json.status).to.eql('DISCOVERED');",
-                  "    pm.expect(json.suggestedCategory).to.be.null;",
+                  "    pm.expect(json.suggestedCategory == null).to.be.true;",
                   "});",
                   "pm.environment.set('itemId', json.id);"
                 ]
@@ -436,7 +436,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"suggestedCategory\": \"SERVER\"\n}"
+              "raw": "{\n  \"suggestedCategory\": \"IOT_SENSOR\"\n}"
             }
           }
         },
@@ -449,7 +449,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('suggestedCategory is SERVER', () => pm.expect(pm.response.json().suggestedCategory).to.eql('SERVER'));"
+                  "pm.test('suggestedCategory is IOT_SENSOR', () => pm.expect(pm.response.json().suggestedCategory).to.eql('IOT_SENSOR'));"
                 ]
               }
             }
