@@ -27,10 +27,10 @@ public class ReviewUpdateDiscoveredItemUseCase {
         this.discoveredItemRepository = discoveredItemRepository;
     }
 
-    public Mono<Void> execute(UUID id, ReviewUpdateDiscoveredItemRequest request, String executor) {
+    public Mono<Void> execute(UUID id, UUID organisationId, ReviewUpdateDiscoveredItemRequest request, String executor) {
         log.info("[USE CASE] Updating review findings for discovered item ID: {}", id);
 
-        return discoveredItemRepository.findById(id)
+        return discoveredItemRepository.findById(id, organisationId)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
                     DiscoveredItemStatus statusBefore = item.getStatus();

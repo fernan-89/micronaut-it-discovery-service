@@ -67,7 +67,7 @@ it updates that existing Asset instead.
 
 ## BIAN Behavior Qualifier Contract (`/it-discovery/v1`)
 
-`X-Tenant-Id` (Organisation UUID) is mandatory on `initiate` and the collection `retrieve`;
+`X-Tenant-Id` (Organisation UUID) is mandatory on every route (ADR-034: another tenant's item is a 404);
 `X-Executor` is mandatory on every mutation and is recorded in the audit ledger. There is no `DELETE`.
 
 | Behavior Qualifier | Method & Path |

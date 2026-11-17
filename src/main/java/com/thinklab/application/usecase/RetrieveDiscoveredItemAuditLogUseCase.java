@@ -32,10 +32,10 @@ public class RetrieveDiscoveredItemAuditLogUseCase {
         this.discoveredItemRepository = discoveredItemRepository;
     }
 
-    public Mono<List<DiscoveredItemAuditEntryResponse>> execute(UUID id) {
+    public Mono<List<DiscoveredItemAuditEntryResponse>> execute(UUID id, UUID organisationId) {
         log.info("[USE CASE] Retrieving audit ledger for discovered item ID: {}", id);
 
-        return discoveredItemRepository.findById(id)
+        return discoveredItemRepository.findById(id, organisationId)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMapMany(item -> Flux.fromIterable(item.getAuditTrail()))
                 .map(DiscoveredItemMapper::toResponse)

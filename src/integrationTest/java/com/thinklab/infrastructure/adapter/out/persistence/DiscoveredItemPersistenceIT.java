@@ -64,7 +64,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         UUID organisationId = UUID.randomUUID();
         DiscoveredItem created = repository.create(newItem(organisationId, "manual", "key-1")).block();
 
-        DiscoveredItem found = repository.findById(created.getId()).block();
+        DiscoveredItem found = repository.findById(created.getId(), created.getOrganisationId()).block();
 
         assertEquals(DiscoveredItemStatus.DISCOVERED, found.getStatus());
         assertEquals("manual", found.getSource());
@@ -94,7 +94,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
 
         repository.updateReseen(created.getId(), Map.of("k", "v2"), lastSeen, entry).block();
 
-        DiscoveredItem found = repository.findById(created.getId()).block();
+        DiscoveredItem found = repository.findById(created.getId(), created.getOrganisationId()).block();
         assertEquals("v2", found.getRawAttributes().get("k"));
         assertEquals(2, found.getAuditTrail().size());
     }
@@ -109,7 +109,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
 
         repository.updateReview(created.getId(), DiscoveredItemStatus.DISCOVERED, AssetCategory.SERVER, matchedAssetId, entry).block();
 
-        DiscoveredItem found = repository.findById(created.getId()).block();
+        DiscoveredItem found = repository.findById(created.getId(), created.getOrganisationId()).block();
         assertEquals(AssetCategory.SERVER, found.getSuggestedCategory());
         assertEquals(matchedAssetId, found.getMatchedAssetId());
     }
@@ -123,7 +123,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
 
         repository.updateStatus(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, entry).block();
 
-        DiscoveredItem found = repository.findById(created.getId()).block();
+        DiscoveredItem found = repository.findById(created.getId(), created.getOrganisationId()).block();
         assertEquals(DiscoveredItemStatus.UNDER_REVIEW, found.getStatus());
     }
 
@@ -137,7 +137,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
 
         repository.updatePromotion(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.PROMOTED, promotedAssetId, entry).block();
 
-        DiscoveredItem found = repository.findById(created.getId()).block();
+        DiscoveredItem found = repository.findById(created.getId(), created.getOrganisationId()).block();
         assertEquals(DiscoveredItemStatus.PROMOTED, found.getStatus());
         assertEquals(promotedAssetId, found.getPromotedAssetId());
     }
@@ -160,9 +160,9 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         DiscoveredItem differentSource = repository.create(newItem(organisationId, "nmap-scanner-01", "key-8")).block();
         DiscoveredItem differentTenant = repository.create(newItem(UUID.randomUUID(), "manual", "key-8")).block();
 
-        assertNotNull(repository.findById(first.getId()).block());
-        assertNotNull(repository.findById(differentSource.getId()).block());
-        assertNotNull(repository.findById(differentTenant.getId()).block());
+        assertNotNull(repository.findById(first.getId(), first.getOrganisationId()).block());
+        assertNotNull(repository.findById(differentSource.getId(), differentSource.getOrganisationId()).block());
+        assertNotNull(repository.findById(differentTenant.getId(), differentTenant.getOrganisationId()).block());
     }
 
     @Test
@@ -194,7 +194,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         DiscoveredItemAuditEntry entry = new DiscoveredItemAuditEntry(Instant.now(), "CLAIMED", EXECUTOR,
                 DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, "x");
 
-        assertNull(repository.findById(unknown).block());
+        assertNull(repository.findById(unknown, UUID.randomUUID()).block());
         assertThrows(DiscoveredItemNotFoundException.class, () -> repository.updateStatus(unknown, DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, entry).block());
     }
 
@@ -226,7 +226,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
 
         assertThrows(com.thinklab.domain.exception.InvalidDiscoveredItemStatusException.class,
                 () -> repository.updateStatus(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.IGNORED, entry).block());
-        assertEquals(DiscoveredItemStatus.UNDER_REVIEW, repository.findById(created.getId()).block().getStatus());
+        assertEquals(DiscoveredItemStatus.UNDER_REVIEW, repository.findById(created.getId(), created.getOrganisationId()).block().getStatus());
         assertThrows(com.thinklab.domain.exception.InvalidDiscoveredItemStatusException.class,
                 () -> repository.reservePromotion(created.getId(), DiscoveredItemStatus.UNDER_REVIEW, Instant.parse("2020-01-01T00:00:00Z"), entry).block());
     }

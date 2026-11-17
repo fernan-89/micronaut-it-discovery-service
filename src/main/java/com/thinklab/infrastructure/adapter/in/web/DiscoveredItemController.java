@@ -105,10 +105,10 @@ public class DiscoveredItemController {
 
     /** Behavior Qualifier: {@code retrieve}. Fetches a single DiscoveredItem by UUID. */
     @Get("/{id}/retrieve")
-    public Mono<HttpResponse<DiscoveredItemResponse>> retrieveById(@PathVariable UUID id) {
+    public Mono<HttpResponse<DiscoveredItemResponse>> retrieveById(@PathVariable UUID id, @Header(TENANT_HEADER) @NotBlank String tenantId) {
         log.info("[ACTION: RETRIEVE_DISCOVERED_ITEM] Received request to get discovered item by ID: {}", id);
 
-        return retrieveDiscoveredItemUseCase.execute(id).map(HttpResponse::ok);
+        return retrieveDiscoveredItemUseCase.execute(id, UUID.fromString(tenantId)).map(HttpResponse::ok);
     }
 
     /** Behavior Qualifier: {@code retrieve} (collection). Lists DiscoveredItems scoped to a tenant. */
@@ -127,45 +127,45 @@ public class DiscoveredItemController {
 
     /** Behavior Qualifier: {@code review/claim}. Claims a DISCOVERED item for review. */
     @Put("/{id}/review/claim")
-    public Mono<HttpResponse<Void>> reviewClaim(@PathVariable UUID id, @Header(EXECUTOR_HEADER) @NotBlank String executor) {
+    public Mono<HttpResponse<Void>> reviewClaim(@PathVariable UUID id, @Header(TENANT_HEADER) @NotBlank String tenantId, @Header(EXECUTOR_HEADER) @NotBlank String executor) {
         log.info("[ACTION: CLAIM_DISCOVERED_ITEM] [EXECUTOR: {}] Received request to claim item ID: {}", executor, id);
 
-        return claimDiscoveredItemUseCase.execute(id, executor).thenReturn(HttpResponse.noContent());
+        return claimDiscoveredItemUseCase.execute(id, UUID.fromString(tenantId), executor).thenReturn(HttpResponse.noContent());
     }
 
     /** Behavior Qualifier: {@code review/update}. Records the reviewer's findings. */
     @Put("/{id}/review/update")
     public Mono<HttpResponse<Void>> reviewUpdate(
-            @PathVariable UUID id,
+            @PathVariable UUID id, @Header(TENANT_HEADER) @NotBlank String tenantId,
             @Header(EXECUTOR_HEADER) @NotBlank String executor,
             @Body @Valid ReviewUpdateDiscoveredItemRequest request
     ) {
         log.info("[ACTION: REVIEW_UPDATE_DISCOVERED_ITEM] [EXECUTOR: {}] Received review update for item ID: {}", executor, id);
 
-        return reviewUpdateDiscoveredItemUseCase.execute(id, request, executor).thenReturn(HttpResponse.noContent());
+        return reviewUpdateDiscoveredItemUseCase.execute(id, UUID.fromString(tenantId), request, executor).thenReturn(HttpResponse.noContent());
     }
 
     /** Behavior Qualifier: {@code control/ignore}. Terminal: marks the item as not inventory-worthy. */
     @Put("/{id}/control/ignore")
-    public Mono<HttpResponse<Void>> controlIgnore(@PathVariable UUID id, @Header(EXECUTOR_HEADER) @NotBlank String executor) {
+    public Mono<HttpResponse<Void>> controlIgnore(@PathVariable UUID id, @Header(TENANT_HEADER) @NotBlank String tenantId, @Header(EXECUTOR_HEADER) @NotBlank String executor) {
         log.info("[ACTION: IGNORE_DISCOVERED_ITEM] [EXECUTOR: {}] Received request to ignore item ID: {}", executor, id);
 
-        return ignoreDiscoveredItemUseCase.execute(id, executor).thenReturn(HttpResponse.noContent());
+        return ignoreDiscoveredItemUseCase.execute(id, UUID.fromString(tenantId), executor).thenReturn(HttpResponse.noContent());
     }
 
     /** Behavior Qualifier: {@code control/promote}. Terminal: promotes the item into a real Asset. */
     @Put("/{id}/control/promote")
-    public Mono<HttpResponse<DiscoveredItemResponse>> controlPromote(@PathVariable UUID id, @Header(EXECUTOR_HEADER) @NotBlank String executor) {
+    public Mono<HttpResponse<DiscoveredItemResponse>> controlPromote(@PathVariable UUID id, @Header(TENANT_HEADER) @NotBlank String tenantId, @Header(EXECUTOR_HEADER) @NotBlank String executor) {
         log.info("[ACTION: PROMOTE_DISCOVERED_ITEM] [EXECUTOR: {}] Received request to promote item ID: {}", executor, id);
 
-        return promoteDiscoveredItemUseCase.execute(id, executor).map(HttpResponse::ok);
+        return promoteDiscoveredItemUseCase.execute(id, UUID.fromString(tenantId), executor).map(HttpResponse::ok);
     }
 
     /** Behavior Qualifier: {@code audit-log/retrieve}. Immutable forensic ledger of the item. */
     @Get("/{id}/audit-log/retrieve")
-    public Mono<List<DiscoveredItemAuditEntryResponse>> retrieveAuditLog(@PathVariable UUID id) {
+    public Mono<List<DiscoveredItemAuditEntryResponse>> retrieveAuditLog(@PathVariable UUID id, @Header(TENANT_HEADER) @NotBlank String tenantId) {
         log.info("[ACTION: RETRIEVE_DISCOVERED_ITEM_AUDIT_LOG] Received request for audit ledger of item ID: {}", id);
 
-        return retrieveDiscoveredItemAuditLogUseCase.execute(id);
+        return retrieveDiscoveredItemAuditLogUseCase.execute(id, UUID.fromString(tenantId));
     }
 }

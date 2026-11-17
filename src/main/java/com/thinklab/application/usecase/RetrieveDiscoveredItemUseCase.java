@@ -25,10 +25,10 @@ public class RetrieveDiscoveredItemUseCase {
         this.discoveredItemRepository = discoveredItemRepository;
     }
 
-    public Mono<DiscoveredItemResponse> execute(UUID id) {
+    public Mono<DiscoveredItemResponse> execute(UUID id, UUID organisationId) {
         log.info("[USE CASE] Retrieving discovered item ID: {}", id);
 
-        return discoveredItemRepository.findById(id)
+        return discoveredItemRepository.findById(id, organisationId)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .map(DiscoveredItemMapper::toResponse);
     }
