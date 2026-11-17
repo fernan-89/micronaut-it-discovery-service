@@ -67,7 +67,7 @@ class PromotionRaceIT implements TestPropertyProvider {
         }
 
         @Override
-        public Mono<UUID> updateAsset(UUID assetId, String name, Map<String, String> specifications, String executor) {
+        public Mono<UUID> updateAsset(UUID organisationId, UUID assetId, String name, Map<String, String> specifications, String executor) {
             return Mono.just(assetId);
         }
     }

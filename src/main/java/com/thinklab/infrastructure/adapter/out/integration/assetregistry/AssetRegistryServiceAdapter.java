@@ -55,10 +55,10 @@ public class AssetRegistryServiceAdapter implements AssetRegistryServicePort {
     }
 
     @Override
-    public Mono<UUID> updateAsset(UUID assetId, String name, Map<String, String> specifications, String executor) {
+    public Mono<UUID> updateAsset(UUID organisationId, UUID assetId, String name, Map<String, String> specifications, String executor) {
         log.debug("[INTEGRATION] Promoting via update on it-asset-registry-service: asset {}", assetId);
 
-        return apiClient.update(assetId, executor, new UpdateAssetApiRequest(name, specifications))
+        return apiClient.update(assetId, organisationId.toString(), executor, new UpdateAssetApiRequest(name, specifications))
                 .thenReturn(assetId)
                 .doOnError(error -> log.error("[INTEGRATION FAILURE] Promotion-via-update failed for asset {}: {}", assetId, error.getMessage()))
                 .onErrorMap(this::translate);
@@ -115,6 +115,7 @@ interface AssetRegistryApiClient {
     @Put("/{id}/update")
     Mono<Void> update(
             @PathVariable UUID id,
+            @Header("X-Tenant-Id") String tenantId,
             @Header("X-Executor") String executor,
             @Body AssetRegistryServiceAdapter.UpdateAssetApiRequest request
     );
