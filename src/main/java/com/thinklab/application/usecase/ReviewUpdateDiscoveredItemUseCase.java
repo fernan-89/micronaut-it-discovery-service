@@ -3,6 +3,7 @@ package com.thinklab.application.usecase;
 import com.thinklab.application.dto.request.ReviewUpdateDiscoveredItemRequest;
 import com.thinklab.domain.exception.DiscoveredItemNotFoundException;
 import com.thinklab.domain.model.DiscoveredItem.DiscoveredItemAuditEntry;
+import com.thinklab.domain.model.DiscoveredItem.DiscoveredItemStatus;
 import com.thinklab.domain.repository.DiscoveredItemRepository;
 import jakarta.inject.Singleton;
 import org.slf4j.Logger;
@@ -32,8 +33,9 @@ public class ReviewUpdateDiscoveredItemUseCase {
         return discoveredItemRepository.findById(id)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
+                    DiscoveredItemStatus statusBefore = item.getStatus();
                     DiscoveredItemAuditEntry entry = item.updateReview(request.suggestedCategory(), request.matchedAssetId(), executor);
-                    return discoveredItemRepository.updateReview(id, request.suggestedCategory(), request.matchedAssetId(), entry);
+                    return discoveredItemRepository.updateReview(id, statusBefore, request.suggestedCategory(), request.matchedAssetId(), entry);
                 });
     }
 }

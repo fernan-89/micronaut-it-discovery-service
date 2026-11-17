@@ -11,6 +11,7 @@ import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.mongodb.reactivestreams.client.MongoDatabase;
 import com.thinklab.domain.exception.DiscoveredItemNotFoundException;
+import com.thinklab.domain.exception.InvalidDiscoveredItemStatusException;
 import com.thinklab.domain.exception.DuplicateDiscoveredItemException;
 import com.thinklab.domain.model.DiscoveredItem;
 import com.thinklab.domain.model.DiscoveredItem.AssetCategory;
@@ -45,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -258,7 +260,7 @@ class DiscoveredItemMongoRepositoryAdapterTest {
         UUID matchedAssetId = UUID.randomUUID();
         DiscoveredItemAuditEntry auditEntry = item.updateReview(AssetCategory.SERVER, matchedAssetId, "reviewer-1");
 
-        StepVerifier.create(adapter.updateReview(itemId, AssetCategory.SERVER, matchedAssetId, auditEntry)).verifyComplete();
+        StepVerifier.create(adapter.updateReview(itemId, DiscoveredItemStatus.DISCOVERED, AssetCategory.SERVER, matchedAssetId, auditEntry)).verifyComplete();
 
         ArgumentCaptor<Bson> update = ArgumentCaptor.forClass(Bson.class);
         verify(mongoCollection).updateOne(any(Bson.class), update.capture());
@@ -275,7 +277,7 @@ class DiscoveredItemMongoRepositoryAdapterTest {
         DiscoveredItemAuditEntry auditEntry = new DiscoveredItemAuditEntry(Instant.now(), "REVIEW_UPDATED", "reviewer-1",
                 DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.DISCOVERED, "d");
 
-        StepVerifier.create(adapter.updateReview(itemId, null, null, auditEntry)).verifyComplete();
+        StepVerifier.create(adapter.updateReview(itemId, DiscoveredItemStatus.DISCOVERED, null, null, auditEntry)).verifyComplete();
 
         ArgumentCaptor<Bson> update = ArgumentCaptor.forClass(Bson.class);
         verify(mongoCollection).updateOne(any(Bson.class), update.capture());
@@ -288,7 +290,7 @@ class DiscoveredItemMongoRepositoryAdapterTest {
         when(mongoCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(Mono.just(UpdateResult.acknowledged(1, 1L, null)));
         DiscoveredItemAuditEntry auditEntry = item.claim("reviewer-1");
 
-        StepVerifier.create(adapter.updateStatus(itemId, DiscoveredItemStatus.UNDER_REVIEW, auditEntry)).verifyComplete();
+        StepVerifier.create(adapter.updateStatus(itemId, DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, auditEntry)).verifyComplete();
 
         ArgumentCaptor<Bson> update = ArgumentCaptor.forClass(Bson.class);
         verify(mongoCollection).updateOne(any(Bson.class), update.capture());
@@ -305,9 +307,10 @@ class DiscoveredItemMongoRepositoryAdapterTest {
         item.claim("reviewer-1");
         item.updateReview(AssetCategory.SERVER, null, "reviewer-1");
         UUID promotedAssetId = UUID.randomUUID();
-        DiscoveredItemAuditEntry auditEntry = item.promote(promotedAssetId, "reviewer-1");
+        item.reservePromotion("reviewer-1", Instant.now());
+        DiscoveredItemAuditEntry auditEntry = item.completePromotion(promotedAssetId, "reviewer-1");
 
-        StepVerifier.create(adapter.updatePromotion(itemId, DiscoveredItemStatus.PROMOTED, promotedAssetId, auditEntry)).verifyComplete();
+        StepVerifier.create(adapter.updatePromotion(itemId, DiscoveredItemStatus.PROMOTING, DiscoveredItemStatus.PROMOTED, promotedAssetId, auditEntry)).verifyComplete();
 
         ArgumentCaptor<Bson> update = ArgumentCaptor.forClass(Bson.class);
         verify(mongoCollection).updateOne(any(Bson.class), update.capture());
@@ -318,18 +321,59 @@ class DiscoveredItemMongoRepositoryAdapterTest {
     }
 
     @Test
-    @DisplayName("every partial update should fail with DiscoveredItemNotFoundException when no document matches")
-    void updatesFailWhenNothingMatches() {
+    @DisplayName("every guarded write filters on the status that was read, and reservePromotion also on the updatedAt that was read")
+    void guardedWritesFilterOnWhatWasRead() {
+        when(mongoCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(Mono.just(UpdateResult.acknowledged(1, 1L, null)));
+        item.claim("reviewer-1");
+        item.updateReview(AssetCategory.SERVER, null, "reviewer-1");
+        Instant read = item.getUpdatedAt();
+        DiscoveredItemAuditEntry reserved = item.reservePromotion("reviewer-1", Instant.now());
+
+        StepVerifier.create(adapter.reservePromotion(itemId, DiscoveredItemStatus.UNDER_REVIEW, read, reserved)).verifyComplete();
+        StepVerifier.create(adapter.updateStatus(itemId, DiscoveredItemStatus.PROMOTING, DiscoveredItemStatus.UNDER_REVIEW, reserved)).verifyComplete();
+
+        ArgumentCaptor<Bson> filter = ArgumentCaptor.forClass(Bson.class);
+        ArgumentCaptor<Bson> update = ArgumentCaptor.forClass(Bson.class);
+        verify(mongoCollection, times(2)).updateOne(filter.capture(), update.capture());
+        BsonDocument reserve = render(filter.getAllValues().get(0));
+        assertTrue(reserve.toJson().contains("UNDER_REVIEW") && reserve.toJson().contains("updatedAt") && reserve.toJson().contains("_id"), reserve.toJson());
+        assertTrue(render(filter.getAllValues().get(1)).toJson().contains("PROMOTING"));
+        BsonDocument set = render(update.getAllValues().get(0)).getDocument("$set");
+        assertEquals("PROMOTING", set.getString("status").getValue());
+        assertEquals("PROMOTION_RESERVED", render(update.getAllValues().get(0)).getDocument("$push").getDocument("auditTrail").getString("action").getValue());
+    }
+
+    @Test
+    @DisplayName("a guarded write that matches nothing is a conflict when the item exists, and a 404 when it does not")
+    void guardedWritesFailWhenNothingMatches() {
+        when(mongoCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(Mono.just(UpdateResult.acknowledged(0, 0L, null)));
+        DiscoveredItemAuditEntry auditEntry = item.claim("reviewer-1");
+        Instant read = item.getUpdatedAt();
+
+        when(mongoCollection.countDocuments(any(Bson.class))).thenReturn(Mono.just(1L));
+        StepVerifier.create(adapter.updateStatus(itemId, DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, auditEntry))
+                .expectError(InvalidDiscoveredItemStatusException.class).verify();
+        StepVerifier.create(adapter.updateReview(itemId, DiscoveredItemStatus.DISCOVERED, null, null, auditEntry))
+                .expectError(InvalidDiscoveredItemStatusException.class).verify();
+        StepVerifier.create(adapter.updatePromotion(itemId, DiscoveredItemStatus.PROMOTING, DiscoveredItemStatus.PROMOTED, UUID.randomUUID(), auditEntry))
+                .expectError(InvalidDiscoveredItemStatusException.class).verify();
+        StepVerifier.create(adapter.reservePromotion(itemId, DiscoveredItemStatus.UNDER_REVIEW, read, auditEntry))
+                .expectError(InvalidDiscoveredItemStatusException.class).verify();
+
+        when(mongoCollection.countDocuments(any(Bson.class))).thenReturn(Mono.just(0L));
+        StepVerifier.create(adapter.updateStatus(itemId, DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, auditEntry))
+                .expectError(DiscoveredItemNotFoundException.class).verify();
+        StepVerifier.create(adapter.reservePromotion(itemId, DiscoveredItemStatus.UNDER_REVIEW, read, auditEntry))
+                .expectError(DiscoveredItemNotFoundException.class).verify();
+    }
+
+    @Test
+    @DisplayName("updateReseen (unguarded: it never changes the status) fails with DiscoveredItemNotFoundException when no document matches")
+    void reseenFailsWhenNothingMatches() {
         when(mongoCollection.updateOne(any(Bson.class), any(Bson.class))).thenReturn(Mono.just(UpdateResult.acknowledged(0, 0L, null)));
         DiscoveredItemAuditEntry auditEntry = item.claim("reviewer-1");
 
-        StepVerifier.create(adapter.updateStatus(itemId, DiscoveredItemStatus.UNDER_REVIEW, auditEntry))
-                .expectError(DiscoveredItemNotFoundException.class).verify();
         StepVerifier.create(adapter.updateReseen(itemId, Map.of(), Instant.now(), auditEntry))
-                .expectError(DiscoveredItemNotFoundException.class).verify();
-        StepVerifier.create(adapter.updateReview(itemId, null, null, auditEntry))
-                .expectError(DiscoveredItemNotFoundException.class).verify();
-        StepVerifier.create(adapter.updatePromotion(itemId, DiscoveredItemStatus.PROMOTED, UUID.randomUUID(), auditEntry))
                 .expectError(DiscoveredItemNotFoundException.class).verify();
     }
 }

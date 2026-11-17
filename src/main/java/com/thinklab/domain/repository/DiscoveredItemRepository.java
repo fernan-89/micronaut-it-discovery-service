@@ -45,9 +45,17 @@ public interface DiscoveredItemRepository {
 
     Mono<Void> updateReseen(UUID id, Map<String, String> rawAttributes, Instant lastSeenAt, DiscoveredItemAuditEntry auditEntry);
 
-    Mono<Void> updateReview(UUID id, AssetCategory suggestedCategory, UUID matchedAssetId, DiscoveredItemAuditEntry auditEntry);
+    /**
+     * The writes below are guarded (platform race audit): each applies only if the item still has the status the caller read, and a miss is
+     * {@link com.thinklab.domain.exception.InvalidDiscoveredItemStatusException} (409) when the item exists, so two people acting on one item at
+     * once cannot both win; an item that does not exist is {@link com.thinklab.domain.exception.DiscoveredItemNotFoundException}.
+     */
+    Mono<Void> updateReview(UUID id, DiscoveredItemStatus expectedStatus, AssetCategory suggestedCategory, UUID matchedAssetId, DiscoveredItemAuditEntry auditEntry);
 
-    Mono<Void> updateStatus(UUID id, DiscoveredItemStatus status, DiscoveredItemAuditEntry auditEntry);
+    Mono<Void> updateStatus(UUID id, DiscoveredItemStatus expectedStatus, DiscoveredItemStatus status, DiscoveredItemAuditEntry auditEntry);
 
-    Mono<Void> updatePromotion(UUID id, DiscoveredItemStatus status, UUID promotedAssetId, DiscoveredItemAuditEntry auditEntry);
+    /** Takes the promotion reservation: only if the item still has the status <b>and</b> the {@code updatedAt} that were read (no one touched it since). */
+    Mono<Void> reservePromotion(UUID id, DiscoveredItemStatus expectedStatus, Instant expectedUpdatedAt, DiscoveredItemAuditEntry auditEntry);
+
+    Mono<Void> updatePromotion(UUID id, DiscoveredItemStatus expectedStatus, DiscoveredItemStatus status, UUID promotedAssetId, DiscoveredItemAuditEntry auditEntry);
 }

@@ -163,12 +163,12 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("Claim: should move a DISCOVERED item to UNDER_REVIEW")
     void claimSuccess() {
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
-        when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(DiscoveredItemStatus.UNDER_REVIEW), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, "reviewer-1"))
                 .verifyComplete();
 
-        verify(discoveredItemRepository).updateStatus(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any());
+        verify(discoveredItemRepository).updateStatus(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(DiscoveredItemStatus.UNDER_REVIEW), any());
     }
 
     @Test
@@ -191,7 +191,7 @@ class DiscoveredItemUseCaseTest {
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
-        verify(discoveredItemRepository, never()).updateStatus(any(), any(), any());
+        verify(discoveredItemRepository, never()).updateStatus(any(), any(), any(), any());
     }
 
     // ---------------------------------------------------------------- review/update
@@ -201,13 +201,13 @@ class DiscoveredItemUseCaseTest {
     void reviewUpdateSuccess() {
         UUID matchedAssetId = UUID.randomUUID();
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
-        when(discoveredItemRepository.updateReview(eq(itemId), eq(AssetCategory.SERVER), eq(matchedAssetId), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updateReview(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(AssetCategory.SERVER), eq(matchedAssetId), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(new ReviewUpdateDiscoveredItemUseCase(discoveredItemRepository)
                         .execute(itemId, new ReviewUpdateDiscoveredItemRequest(AssetCategory.SERVER, matchedAssetId), "reviewer-1"))
                 .verifyComplete();
 
-        verify(discoveredItemRepository).updateReview(eq(itemId), eq(AssetCategory.SERVER), eq(matchedAssetId), any());
+        verify(discoveredItemRepository).updateReview(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(AssetCategory.SERVER), eq(matchedAssetId), any());
     }
 
     @Test
@@ -233,7 +233,7 @@ class DiscoveredItemUseCaseTest {
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
-        verify(discoveredItemRepository, never()).updateReview(any(), any(), any(), any());
+        verify(discoveredItemRepository, never()).updateReview(any(), any(), any(), any(), any());
     }
 
     // ---------------------------------------------------------------- control/ignore
@@ -242,7 +242,7 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("Ignore: should mark a DISCOVERED item as IGNORED")
     void ignoreSuccess() {
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
-        when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.IGNORED), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(DiscoveredItemStatus.IGNORED), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, EXECUTOR))
                 .verifyComplete();
@@ -268,7 +268,7 @@ class DiscoveredItemUseCaseTest {
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
-        verify(discoveredItemRepository, never()).updateStatus(any(), any(), any());
+        verify(discoveredItemRepository, never()).updateStatus(any(), any(), any(), any());
     }
 
     // ---------------------------------------------------------------- control/promote
@@ -282,7 +282,8 @@ class DiscoveredItemUseCaseTest {
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
         when(assetRegistryServicePort.initiateAsset(organisationId, AssetCategory.SERVER, "Mystery Box", "AA:BB:CC", item.getRawAttributes(), "reviewer-1"))
                 .thenReturn(Mono.just(promotedAssetId));
-        when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTED), eq(promotedAssetId), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.PROMOTED), eq(promotedAssetId), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, "reviewer-1"))
                 .assertNext(response -> {
@@ -303,7 +304,8 @@ class DiscoveredItemUseCaseTest {
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
         when(assetRegistryServicePort.updateAsset(matchedAssetId, "Mystery Box", item.getRawAttributes(), "reviewer-1"))
                 .thenReturn(Mono.just(matchedAssetId));
-        when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTED), eq(matchedAssetId), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.PROMOTED), eq(matchedAssetId), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, "reviewer-1"))
                 .assertNext(response -> assertEquals(matchedAssetId, response.promotedAssetId()))
@@ -332,6 +334,7 @@ class DiscoveredItemUseCaseTest {
                 .verify();
 
         verifyNoInteractions(assetRegistryServicePort);
+        verify(discoveredItemRepository, never()).reservePromotion(any(), any(), any(), any());
     }
 
     @Test
@@ -348,11 +351,31 @@ class DiscoveredItemUseCaseTest {
     }
 
     @Test
-    @DisplayName("Promote: should propagate a downstream Asset Registry failure and never write the promotion")
+    @DisplayName("Promote: a reservation lost to someone else is a conflict and nothing is created in the Asset Registry")
+    void promoteLosesTheReservation() {
+        item.claim(EXECUTOR);
+        item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
+        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any()))
+                .thenReturn(Mono.error(new InvalidDiscoveredItemStatusException("changed by someone else")));
+
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+                .expectError(InvalidDiscoveredItemStatusException.class)
+                .verify();
+
+        verifyNoInteractions(assetRegistryServicePort);
+        verify(discoveredItemRepository, never()).updatePromotion(any(), any(), any(), any(), any());
+        verify(discoveredItemRepository, never()).updateStatus(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Promote: a downstream Asset Registry failure releases the reservation, is propagated and never writes the promotion")
     void promotePropagatesDownstreamFailure() {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.UNDER_REVIEW), any())).thenReturn(Mono.empty());
         when(assetRegistryServicePort.initiateAsset(any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new PromotionConflictException("conflict", new RuntimeException())));
 
@@ -360,8 +383,26 @@ class DiscoveredItemUseCaseTest {
                 .expectError(PromotionConflictException.class)
                 .verify();
 
-        verify(discoveredItemRepository, never()).updatePromotion(any(), any(), any(), any());
+        verify(discoveredItemRepository, never()).updatePromotion(any(), any(), any(), any(), any());
+        verify(discoveredItemRepository).updateStatus(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.UNDER_REVIEW), any());
         assertEquals(DiscoveredItemStatus.UNDER_REVIEW, item.getStatus());
+    }
+
+    @Test
+    @DisplayName("Promote: if releasing the reservation also fails, the original failure still reaches the caller")
+    void promoteKeepsTheOriginalFailureWhenReleaseFails() {
+        item.claim(EXECUTOR);
+        item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
+        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
+        when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.UNDER_REVIEW), any()))
+                .thenReturn(Mono.error(new IllegalStateException("database down")));
+        when(assetRegistryServicePort.initiateAsset(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.error(new PromotionConflictException("conflict", new RuntimeException())));
+
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+                .expectError(PromotionConflictException.class)
+                .verify();
     }
 
     // ---------------------------------------------------------------- audit log

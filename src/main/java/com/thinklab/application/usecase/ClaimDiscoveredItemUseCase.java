@@ -32,8 +32,9 @@ public class ClaimDiscoveredItemUseCase {
         return discoveredItemRepository.findById(id)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
+                    DiscoveredItemStatus statusBefore = item.getStatus();
                     DiscoveredItemAuditEntry entry = item.claim(executor);
-                    return discoveredItemRepository.updateStatus(id, DiscoveredItemStatus.UNDER_REVIEW, entry);
+                    return discoveredItemRepository.updateStatus(id, statusBefore, DiscoveredItemStatus.UNDER_REVIEW, entry);
                 });
     }
 }

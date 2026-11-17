@@ -32,8 +32,9 @@ public class IgnoreDiscoveredItemUseCase {
         return discoveredItemRepository.findById(id)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
+                    DiscoveredItemStatus statusBefore = item.getStatus();
                     DiscoveredItemAuditEntry entry = item.ignore(executor);
-                    return discoveredItemRepository.updateStatus(id, DiscoveredItemStatus.IGNORED, entry);
+                    return discoveredItemRepository.updateStatus(id, statusBefore, DiscoveredItemStatus.IGNORED, entry);
                 });
     }
 }

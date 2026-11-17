@@ -2,6 +2,7 @@ package com.thinklab.domain.model;
 
 import com.thinklab.domain.exception.InvalidDiscoveredItemStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +29,9 @@ import java.util.UUID;
  * <p>Strictly pure Java. Agnostic of frameworks, databases, or web layers.
  */
 public class DiscoveredItem {
+
+    /** How long a promotion may hold the item; after it the reservation is considered abandoned and may be taken over. */
+    public static final Duration PROMOTION_LEASE = Duration.ofMinutes(5);
 
     private final UUID id;
     private final UUID organisationId;
@@ -175,15 +179,16 @@ public class DiscoveredItem {
     }
 
     /**
-     * Behavior Qualifier: {@code control/promote}. Terminal: the item becomes (or updates) a real
-     * Asset. Only legal from {@code UNDER_REVIEW}, and only once a {@code suggestedCategory} has been
-     * recorded via {@code review/update} — the orchestration layer performs the actual call to the IT
-     * Asset Registry and supplies the resulting {@code promotedAssetId} here.
+     * Behavior Qualifier: {@code control/promote}, step 1 of 2. Promotion creates (or updates) an Asset in another service, so it first
+     * <b>reserves</b> the item: {@code UNDER_REVIEW -> PROMOTING}, written as a guarded update, so that of any number of simultaneous
+     * promotions only one gets to act and the rest are refused with a conflict. Only legal from {@code UNDER_REVIEW}, and only once a
+     * {@code suggestedCategory} has been recorded via {@code review/update}. A reservation older than {@link #PROMOTION_LEASE} (the
+     * process that held it died) may be taken over; a younger one may not.
      */
-    public DiscoveredItemAuditEntry promote(UUID promotedAssetId, String executor) {
+    public DiscoveredItemAuditEntry reservePromotion(String executor, Instant now) {
         requireExecutor(executor);
-        Objects.requireNonNull(promotedAssetId, "promotedAssetId cannot be null when promoting.");
-        if (this.status != DiscoveredItemStatus.UNDER_REVIEW) {
+        boolean abandoned = this.status == DiscoveredItemStatus.PROMOTING && this.updatedAt.plus(PROMOTION_LEASE).isBefore(now);
+        if (this.status != DiscoveredItemStatus.UNDER_REVIEW && !abandoned) {
             throw new InvalidDiscoveredItemStatusException(String.format(
                     "Compliance Violation: only an UNDER_REVIEW item can be promoted; current status is [%s].", this.status));
         }
@@ -191,9 +196,26 @@ public class DiscoveredItem {
             throw new InvalidDiscoveredItemStatusException(
                     "Compliance Violation: a suggestedCategory must be recorded (review/update) before promotion.");
         }
+        return transition(DiscoveredItemStatus.PROMOTING, "PROMOTION_RESERVED", executor, "Promotion started: the Asset is being created.");
+    }
+
+    /**
+     * Behavior Qualifier: {@code control/promote}, step 2 of 2. Terminal: the Asset exists; the orchestration layer supplies its id.
+     * Only legal from {@code PROMOTING}.
+     */
+    public DiscoveredItemAuditEntry completePromotion(UUID promotedAssetId, String executor) {
+        requireExecutor(executor);
+        Objects.requireNonNull(promotedAssetId, "promotedAssetId cannot be null when promoting.");
+        requirePromoting("complete the promotion of");
         this.promotedAssetId = promotedAssetId;
-        return transition(DiscoveredItemStatus.PROMOTED, "PROMOTED", executor,
-                String.format("Item promoted to Asset [%s].", promotedAssetId));
+        return transition(DiscoveredItemStatus.PROMOTED, "PROMOTED", executor, String.format("Item promoted to Asset [%s].", promotedAssetId));
+    }
+
+    /** The Asset could not be created: back to {@code UNDER_REVIEW}, so the promotion can be tried again. Only legal from {@code PROMOTING}. */
+    public DiscoveredItemAuditEntry releasePromotion(String executor) {
+        requireExecutor(executor);
+        requirePromoting("release the promotion of");
+        return transition(DiscoveredItemStatus.UNDER_REVIEW, "PROMOTION_RELEASED", executor, "Promotion failed: the item is back under review.");
     }
 
     // --- Internal helpers ---
@@ -214,10 +236,21 @@ public class DiscoveredItem {
         return entry;
     }
 
+    private void requirePromoting(String operation) {
+        if (this.status != DiscoveredItemStatus.PROMOTING) {
+            throw new InvalidDiscoveredItemStatusException(String.format(
+                    "Compliance Violation: cannot %s an item that is not being promoted (status [%s]).", operation, this.status));
+        }
+    }
+
     private void requireNotTerminal(String operation) {
         if (this.status == DiscoveredItemStatus.PROMOTED || this.status == DiscoveredItemStatus.IGNORED) {
             throw new InvalidDiscoveredItemStatusException(String.format(
                     "Compliance Violation: cannot %s a terminal item (status [%s]); the lifecycle is closed.", operation, this.status));
+        }
+        if (this.status == DiscoveredItemStatus.PROMOTING) {
+            throw new InvalidDiscoveredItemStatusException(String.format(
+                    "Compliance Violation: cannot %s an item while it is being promoted.", operation));
         }
     }
 
@@ -262,7 +295,7 @@ public class DiscoveredItem {
     }
 
     public enum DiscoveredItemStatus {
-        DISCOVERED, UNDER_REVIEW, PROMOTED, IGNORED
+        DISCOVERED, UNDER_REVIEW, PROMOTING, PROMOTED, IGNORED
     }
 
     /**

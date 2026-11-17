@@ -3,7 +3,6 @@ package com.thinklab.application.usecase;
 import com.thinklab.application.dto.response.DiscoveredItemResponse;
 import com.thinklab.application.mapper.DiscoveredItemMapper;
 import com.thinklab.domain.exception.DiscoveredItemNotFoundException;
-import com.thinklab.domain.exception.InvalidDiscoveredItemStatusException;
 import com.thinklab.domain.model.DiscoveredItem;
 import com.thinklab.domain.model.DiscoveredItem.DiscoveredItemAuditEntry;
 import com.thinklab.domain.model.DiscoveredItem.DiscoveredItemStatus;
@@ -14,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -47,13 +47,37 @@ public class PromoteDiscoveredItemUseCase {
         return discoveredItemRepository.findById(id)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
-                    requirePromotable(item);
-                    return resolveAssetId(item, executor)
+                    // Step 1: reserve. A guarded write on the status and updatedAt that were read: of simultaneous promotions only one passes, the rest
+                    // are refused (409) before anything is created in the Asset Registry.
+                    DiscoveredItemStatus statusRead = item.getStatus();
+                    Instant updatedAtRead = item.getUpdatedAt();
+                    DiscoveredItemAuditEntry reserved = item.reservePromotion(executor, Instant.now());
+                    return discoveredItemRepository.reservePromotion(id, statusRead, updatedAtRead, reserved)
+                            .then(Mono.defer(() -> createOrUpdateAsset(item, executor)))
+                            // Step 2: close. The Asset exists; PROMOTING -> PROMOTED, guarded on PROMOTING.
                             .flatMap(assetId -> {
-                                DiscoveredItemAuditEntry entry = item.promote(assetId, executor);
-                                return discoveredItemRepository.updatePromotion(id, DiscoveredItemStatus.PROMOTED, assetId, entry)
+                                DiscoveredItemAuditEntry entry = item.completePromotion(assetId, executor);
+                                return discoveredItemRepository.updatePromotion(id, DiscoveredItemStatus.PROMOTING, DiscoveredItemStatus.PROMOTED, assetId, entry)
                                         .thenReturn(DiscoveredItemMapper.toResponse(item));
                             });
+                });
+    }
+
+    /**
+     * Creates or updates the Asset; if the Asset Registry refuses (ADR-032: 422, 404, 409 come back to the caller), the reservation is released so the
+     * item is UNDER_REVIEW again and the promotion can be tried again. A failure to release is logged and does not hide the real error: the reservation
+     * then expires by itself after {@link DiscoveredItem#PROMOTION_LEASE}.
+     */
+    private Mono<UUID> createOrUpdateAsset(DiscoveredItem item, String executor) {
+        return resolveAssetId(item, executor)
+                .onErrorResume(failure -> {
+                    DiscoveredItemAuditEntry released = item.releasePromotion(executor);
+                    return discoveredItemRepository.updateStatus(item.getId(), DiscoveredItemStatus.PROMOTING, DiscoveredItemStatus.UNDER_REVIEW, released)
+                            .onErrorResume(releaseFailure -> {
+                                log.warn("[USE CASE] Could not release the promotion of item {}: {}", item.getId(), releaseFailure.getMessage());
+                                return Mono.empty();
+                            })
+                            .then(Mono.<UUID>error(failure));
                 });
     }
 
@@ -63,16 +87,5 @@ public class PromoteDiscoveredItemUseCase {
                     item.getName(), item.getExternalKey(), item.getRawAttributes(), executor);
         }
         return assetRegistryServicePort.updateAsset(item.getMatchedAssetId(), item.getName(), item.getRawAttributes(), executor);
-    }
-
-    private static void requirePromotable(DiscoveredItem item) {
-        if (item.getStatus() != DiscoveredItemStatus.UNDER_REVIEW) {
-            throw new InvalidDiscoveredItemStatusException(String.format(
-                    "Compliance Violation: only an UNDER_REVIEW item can be promoted; current status is [%s].", item.getStatus()));
-        }
-        if (item.getSuggestedCategory() == null) {
-            throw new InvalidDiscoveredItemStatusException(
-                    "Compliance Violation: a suggestedCategory must be recorded (review/update) before promotion.");
-        }
     }
 }
