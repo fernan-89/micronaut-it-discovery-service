@@ -146,7 +146,7 @@ class DiscoveredItemMongoRepositoryAdapterTest {
         when(mongoCollection.find(any(Bson.class))).thenReturn(publisher);
         when(publisher.first()).thenReturn(Mono.just(DiscoveredItemPersistenceMapper.toDocument(item)));
 
-        StepVerifier.create(adapter.findById(itemId))
+        StepVerifier.create(adapter.findById(itemId, UUID.randomUUID()))
                 .expectNextMatches(found -> found.getId().equals(itemId)
                         && found.getStatus() == DiscoveredItemStatus.DISCOVERED
                         && found.getAuditTrail().size() == 1)
@@ -160,7 +160,7 @@ class DiscoveredItemMongoRepositoryAdapterTest {
         when(mongoCollection.find(any(Bson.class))).thenReturn(publisher);
         when(publisher.first()).thenReturn(Mono.empty());
 
-        StepVerifier.create(adapter.findById(itemId)).verifyComplete();
+        StepVerifier.create(adapter.findById(itemId, UUID.randomUUID())).verifyComplete();
     }
 
     @Test

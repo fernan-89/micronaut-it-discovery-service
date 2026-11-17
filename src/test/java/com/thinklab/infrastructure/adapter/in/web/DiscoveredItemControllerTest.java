@@ -45,6 +45,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class DiscoveredItemControllerTest {
 
+    private static final String TENANT = UUID.randomUUID().toString();
+
     private static final String EXECUTOR = "ops-admin";
 
     @Mock private InitiateDiscoveredItemUseCase initiateDiscoveredItemUseCase;
@@ -120,9 +122,9 @@ class DiscoveredItemControllerTest {
     @Test
     @DisplayName("retrieveById should return 200 OK")
     void retrieveById() {
-        when(retrieveDiscoveredItemUseCase.execute(itemId)).thenReturn(Mono.just(sample));
+        when(retrieveDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT))).thenReturn(Mono.just(sample));
 
-        StepVerifier.create(controller.retrieveById(itemId))
+        StepVerifier.create(controller.retrieveById(itemId, TENANT))
                 .assertNext(response -> {
                     assertEquals(HttpStatus.OK, response.getStatus());
                     assertEquals("Mystery Box", response.body().name());
@@ -133,9 +135,9 @@ class DiscoveredItemControllerTest {
     @Test
     @DisplayName("retrieveById should surface not-found from the use case")
     void retrieveByIdNotFound() {
-        when(retrieveDiscoveredItemUseCase.execute(itemId)).thenReturn(Mono.error(new DiscoveredItemNotFoundException(itemId)));
+        when(retrieveDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT))).thenReturn(Mono.error(new DiscoveredItemNotFoundException(itemId)));
 
-        StepVerifier.create(controller.retrieveById(itemId)).expectError(DiscoveredItemNotFoundException.class).verify();
+        StepVerifier.create(controller.retrieveById(itemId, TENANT)).expectError(DiscoveredItemNotFoundException.class).verify();
     }
 
     @Test
@@ -154,9 +156,9 @@ class DiscoveredItemControllerTest {
     @Test
     @DisplayName("reviewClaim should return 204 No Content")
     void reviewClaim() {
-        when(claimDiscoveredItemUseCase.execute(itemId, EXECUTOR)).thenReturn(Mono.empty());
+        when(claimDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT), EXECUTOR)).thenReturn(Mono.empty());
 
-        StepVerifier.create(controller.reviewClaim(itemId, EXECUTOR))
+        StepVerifier.create(controller.reviewClaim(itemId, TENANT, EXECUTOR))
                 .assertNext(response -> assertEquals(HttpStatus.NO_CONTENT, response.getStatus()))
                 .verifyComplete();
     }
@@ -164,29 +166,29 @@ class DiscoveredItemControllerTest {
     @Test
     @DisplayName("reviewClaim should surface an illegal transition (409) from the use case")
     void reviewClaimIllegal() {
-        when(claimDiscoveredItemUseCase.execute(itemId, EXECUTOR)).thenReturn(Mono.error(new InvalidDiscoveredItemStatusException("illegal")));
+        when(claimDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT), EXECUTOR)).thenReturn(Mono.error(new InvalidDiscoveredItemStatusException("illegal")));
 
-        StepVerifier.create(controller.reviewClaim(itemId, EXECUTOR)).expectError(InvalidDiscoveredItemStatusException.class).verify();
+        StepVerifier.create(controller.reviewClaim(itemId, TENANT, EXECUTOR)).expectError(InvalidDiscoveredItemStatusException.class).verify();
     }
 
     @Test
     @DisplayName("reviewUpdate should return 204 No Content and pass the executor to the use case")
     void reviewUpdate() {
         ReviewUpdateDiscoveredItemRequest request = new ReviewUpdateDiscoveredItemRequest(AssetCategory.SERVER, UUID.randomUUID());
-        when(reviewUpdateDiscoveredItemUseCase.execute(itemId, request, EXECUTOR)).thenReturn(Mono.empty());
+        when(reviewUpdateDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT), request, EXECUTOR)).thenReturn(Mono.empty());
 
-        StepVerifier.create(controller.reviewUpdate(itemId, EXECUTOR, request))
+        StepVerifier.create(controller.reviewUpdate(itemId, TENANT, EXECUTOR, request))
                 .assertNext(response -> assertEquals(HttpStatus.NO_CONTENT, response.getStatus()))
                 .verifyComplete();
-        verify(reviewUpdateDiscoveredItemUseCase).execute(itemId, request, EXECUTOR);
+        verify(reviewUpdateDiscoveredItemUseCase).execute(itemId, UUID.fromString(TENANT), request, EXECUTOR);
     }
 
     @Test
     @DisplayName("controlIgnore should return 204 No Content")
     void controlIgnore() {
-        when(ignoreDiscoveredItemUseCase.execute(itemId, EXECUTOR)).thenReturn(Mono.empty());
+        when(ignoreDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT), EXECUTOR)).thenReturn(Mono.empty());
 
-        StepVerifier.create(controller.controlIgnore(itemId, EXECUTOR))
+        StepVerifier.create(controller.controlIgnore(itemId, TENANT, EXECUTOR))
                 .assertNext(response -> assertEquals(HttpStatus.NO_CONTENT, response.getStatus()))
                 .verifyComplete();
     }
@@ -196,9 +198,9 @@ class DiscoveredItemControllerTest {
     void controlPromote() {
         DiscoveredItemResponse promoted = new DiscoveredItemResponse(itemId, organisationId, "manual", "AA:BB:CC", "Mystery Box",
                 "SERVER", Map.of(), null, UUID.randomUUID(), "PROMOTED", Instant.now(), Instant.now(), Instant.now(), Instant.now());
-        when(promoteDiscoveredItemUseCase.execute(itemId, EXECUTOR)).thenReturn(Mono.just(promoted));
+        when(promoteDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT), EXECUTOR)).thenReturn(Mono.just(promoted));
 
-        StepVerifier.create(controller.controlPromote(itemId, EXECUTOR))
+        StepVerifier.create(controller.controlPromote(itemId, TENANT, EXECUTOR))
                 .assertNext(response -> {
                     assertEquals(HttpStatus.OK, response.getStatus());
                     assertEquals("PROMOTED", response.body().status());
@@ -209,18 +211,18 @@ class DiscoveredItemControllerTest {
     @Test
     @DisplayName("controlPromote should surface an illegal transition (409) from the use case")
     void controlPromoteIllegal() {
-        when(promoteDiscoveredItemUseCase.execute(itemId, EXECUTOR)).thenReturn(Mono.error(new InvalidDiscoveredItemStatusException("illegal")));
+        when(promoteDiscoveredItemUseCase.execute(itemId, UUID.fromString(TENANT), EXECUTOR)).thenReturn(Mono.error(new InvalidDiscoveredItemStatusException("illegal")));
 
-        StepVerifier.create(controller.controlPromote(itemId, EXECUTOR)).expectError(InvalidDiscoveredItemStatusException.class).verify();
+        StepVerifier.create(controller.controlPromote(itemId, TENANT, EXECUTOR)).expectError(InvalidDiscoveredItemStatusException.class).verify();
     }
 
     @Test
     @DisplayName("retrieveAuditLog should list the ledger entries")
     void retrieveAuditLog() {
         DiscoveredItemAuditEntryResponse entry = new DiscoveredItemAuditEntryResponse(Instant.now(), "DISCOVERED", EXECUTOR, null, "DISCOVERED", "d");
-        when(retrieveDiscoveredItemAuditLogUseCase.execute(itemId)).thenReturn(Mono.just(List.of(entry)));
+        when(retrieveDiscoveredItemAuditLogUseCase.execute(itemId, UUID.fromString(TENANT))).thenReturn(Mono.just(List.of(entry)));
 
-        StepVerifier.create(controller.retrieveAuditLog(itemId))
+        StepVerifier.create(controller.retrieveAuditLog(itemId, TENANT))
                 .assertNext(list -> {
                     assertNotNull(list);
                     assertEquals(1, list.size());

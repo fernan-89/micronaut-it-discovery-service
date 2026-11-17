@@ -119,9 +119,9 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Retrieve: should project the aggregate to a response")
     void retrieveSuccess() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
-        StepVerifier.create(new RetrieveDiscoveredItemUseCase(discoveredItemRepository).execute(itemId))
+        StepVerifier.create(new RetrieveDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId))
                 .assertNext(response -> {
                     assertEquals(itemId, response.id());
                     assertEquals("Mystery Box", response.name());
@@ -132,9 +132,9 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Retrieve: should fail with DiscoveredItemNotFoundException (404) when absent")
     void retrieveNotFound() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.empty());
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(new RetrieveDiscoveredItemUseCase(discoveredItemRepository).execute(itemId))
+        StepVerifier.create(new RetrieveDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId))
                 .expectErrorSatisfies(error -> {
                     assertEquals(DiscoveredItemNotFoundException.class, error.getClass());
                     assertEquals("ERR-DSC-00404", ((DiscoveredItemNotFoundException) error).getErrorCode());
@@ -162,10 +162,10 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Claim: should move a DISCOVERED item to UNDER_REVIEW")
     void claimSuccess() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(DiscoveredItemStatus.UNDER_REVIEW), any())).thenReturn(Mono.empty());
 
-        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, "reviewer-1"))
+        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId, "reviewer-1"))
                 .verifyComplete();
 
         verify(discoveredItemRepository).updateStatus(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(DiscoveredItemStatus.UNDER_REVIEW), any());
@@ -174,9 +174,9 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Claim: should fail with 404 when the item does not exist")
     void claimNotFound() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.empty());
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, EXECUTOR))
+        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId, EXECUTOR))
                 .expectError(DiscoveredItemNotFoundException.class)
                 .verify();
     }
@@ -185,9 +185,9 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("Claim: should reject claiming a non-DISCOVERED item and never write")
     void claimRejectedWhenNotDiscovered() {
         item.claim(EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
-        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, EXECUTOR))
+        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId, EXECUTOR))
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
@@ -200,11 +200,11 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("ReviewUpdate: should persist the reviewer's findings")
     void reviewUpdateSuccess() {
         UUID matchedAssetId = UUID.randomUUID();
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(discoveredItemRepository.updateReview(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(AssetCategory.SERVER), eq(matchedAssetId), any())).thenReturn(Mono.empty());
 
         StepVerifier.create(new ReviewUpdateDiscoveredItemUseCase(discoveredItemRepository)
-                        .execute(itemId, new ReviewUpdateDiscoveredItemRequest(AssetCategory.SERVER, matchedAssetId), "reviewer-1"))
+                        .execute(itemId, organisationId, new ReviewUpdateDiscoveredItemRequest(AssetCategory.SERVER, matchedAssetId), "reviewer-1"))
                 .verifyComplete();
 
         verify(discoveredItemRepository).updateReview(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(AssetCategory.SERVER), eq(matchedAssetId), any());
@@ -213,10 +213,10 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("ReviewUpdate: should fail with 404 when the item does not exist")
     void reviewUpdateNotFound() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.empty());
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.empty());
 
         StepVerifier.create(new ReviewUpdateDiscoveredItemUseCase(discoveredItemRepository)
-                        .execute(itemId, new ReviewUpdateDiscoveredItemRequest(null, null), EXECUTOR))
+                        .execute(itemId, organisationId, new ReviewUpdateDiscoveredItemRequest(null, null), EXECUTOR))
                 .expectError(DiscoveredItemNotFoundException.class)
                 .verify();
     }
@@ -226,10 +226,10 @@ class DiscoveredItemUseCaseTest {
     void reviewUpdateRejectedWhenTerminal() {
         item.claim(EXECUTOR);
         item.ignore(EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
         StepVerifier.create(new ReviewUpdateDiscoveredItemUseCase(discoveredItemRepository)
-                        .execute(itemId, new ReviewUpdateDiscoveredItemRequest(AssetCategory.SERVER, null), EXECUTOR))
+                        .execute(itemId, organisationId, new ReviewUpdateDiscoveredItemRequest(AssetCategory.SERVER, null), EXECUTOR))
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
@@ -241,19 +241,19 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Ignore: should mark a DISCOVERED item as IGNORED")
     void ignoreSuccess() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.DISCOVERED), eq(DiscoveredItemStatus.IGNORED), any())).thenReturn(Mono.empty());
 
-        StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, EXECUTOR))
+        StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId, EXECUTOR))
                 .verifyComplete();
     }
 
     @Test
     @DisplayName("Ignore: should fail with 404 when the item does not exist")
     void ignoreNotFound() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.empty());
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, EXECUTOR))
+        StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId, EXECUTOR))
                 .expectError(DiscoveredItemNotFoundException.class)
                 .verify();
     }
@@ -262,9 +262,9 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("Ignore: should reject ignoring an already-terminal item and never write")
     void ignoreRejectedWhenAlreadyTerminal() {
         item.ignore(EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
-        StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, EXECUTOR))
+        StepVerifier.create(new IgnoreDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, organisationId, EXECUTOR))
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
@@ -279,13 +279,13 @@ class DiscoveredItemUseCaseTest {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
         UUID promotedAssetId = UUID.randomUUID();
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(assetRegistryServicePort.initiateAsset(organisationId, AssetCategory.SERVER, "Mystery Box", "AA:BB:CC", item.getRawAttributes(), "reviewer-1"))
                 .thenReturn(Mono.just(promotedAssetId));
         when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
         when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.PROMOTED), eq(promotedAssetId), any())).thenReturn(Mono.empty());
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, "reviewer-1"))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, "reviewer-1"))
                 .assertNext(response -> {
                     assertEquals("PROMOTED", response.status());
                     assertEquals(promotedAssetId, response.promotedAssetId());
@@ -301,13 +301,13 @@ class DiscoveredItemUseCaseTest {
         UUID matchedAssetId = UUID.randomUUID();
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, matchedAssetId, EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(assetRegistryServicePort.updateAsset(item.getOrganisationId(), matchedAssetId, "Mystery Box", item.getRawAttributes(), "reviewer-1"))
                 .thenReturn(Mono.just(matchedAssetId));
         when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
         when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.PROMOTED), eq(matchedAssetId), any())).thenReturn(Mono.empty());
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, "reviewer-1"))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, "reviewer-1"))
                 .assertNext(response -> assertEquals(matchedAssetId, response.promotedAssetId()))
                 .verifyComplete();
 
@@ -317,9 +317,9 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Promote: should fail with 404 when the item does not exist")
     void promoteNotFound() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.empty());
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, EXECUTOR))
                 .expectError(DiscoveredItemNotFoundException.class)
                 .verify();
     }
@@ -327,9 +327,9 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Promote: should reject when not UNDER_REVIEW without ever calling the Asset Registry")
     void promoteRejectedWhenNotUnderReview() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, EXECUTOR))
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
@@ -341,9 +341,9 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("Promote: should reject without a recorded suggestedCategory without ever calling the Asset Registry")
     void promoteRejectedWithoutSuggestedCategory() {
         item.claim(EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, EXECUTOR))
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
@@ -355,11 +355,11 @@ class DiscoveredItemUseCaseTest {
     void promoteLosesTheReservation() {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any()))
                 .thenReturn(Mono.error(new InvalidDiscoveredItemStatusException("changed by someone else")));
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, EXECUTOR))
                 .expectError(InvalidDiscoveredItemStatusException.class)
                 .verify();
 
@@ -373,13 +373,13 @@ class DiscoveredItemUseCaseTest {
     void promotePropagatesDownstreamFailure() {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
         when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.UNDER_REVIEW), any())).thenReturn(Mono.empty());
         when(assetRegistryServicePort.initiateAsset(any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new PromotionConflictException("conflict", new RuntimeException())));
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, EXECUTOR))
                 .expectError(PromotionConflictException.class)
                 .verify();
 
@@ -393,14 +393,14 @@ class DiscoveredItemUseCaseTest {
     void promoteKeepsTheOriginalFailureWhenReleaseFails() {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
         when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
         when(discoveredItemRepository.updateStatus(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.UNDER_REVIEW), any()))
                 .thenReturn(Mono.error(new IllegalStateException("database down")));
         when(assetRegistryServicePort.initiateAsset(any(), any(), any(), any(), any(), any()))
                 .thenReturn(Mono.error(new PromotionConflictException("conflict", new RuntimeException())));
 
-        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, EXECUTOR))
+        StepVerifier.create(new PromoteDiscoveredItemUseCase(discoveredItemRepository, assetRegistryServicePort).execute(itemId, organisationId, EXECUTOR))
                 .expectError(PromotionConflictException.class)
                 .verify();
     }
@@ -411,9 +411,9 @@ class DiscoveredItemUseCaseTest {
     @DisplayName("Audit log: should project every ledger entry in order")
     void auditLogSuccess() {
         item.claim(EXECUTOR);
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.just(item));
 
-        StepVerifier.create(new RetrieveDiscoveredItemAuditLogUseCase(discoveredItemRepository).execute(itemId))
+        StepVerifier.create(new RetrieveDiscoveredItemAuditLogUseCase(discoveredItemRepository).execute(itemId, organisationId))
                 .assertNext(entries -> {
                     assertNotNull(entries);
                     assertEquals(2, entries.size());
@@ -426,10 +426,23 @@ class DiscoveredItemUseCaseTest {
     @Test
     @DisplayName("Audit log: should fail with 404 when the item does not exist")
     void auditLogNotFound() {
-        when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.empty());
+        when(discoveredItemRepository.findById(itemId, organisationId)).thenReturn(Mono.empty());
 
-        StepVerifier.create(new RetrieveDiscoveredItemAuditLogUseCase(discoveredItemRepository).execute(itemId))
+        StepVerifier.create(new RetrieveDiscoveredItemAuditLogUseCase(discoveredItemRepository).execute(itemId, organisationId))
                 .expectError(DiscoveredItemNotFoundException.class)
                 .verify();
+    }
+
+    @Test
+    @DisplayName("every by-id lookup is made in the caller's tenant: another tenant's item is the same as none, and nothing is written")
+    void anotherTenantsItem() {
+        UUID other = UUID.randomUUID();
+        when(discoveredItemRepository.findById(itemId, other)).thenReturn(Mono.empty());
+
+        StepVerifier.create(new RetrieveDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, other)).expectError(DiscoveredItemNotFoundException.class).verify();
+        StepVerifier.create(new RetrieveDiscoveredItemAuditLogUseCase(discoveredItemRepository).execute(itemId, other)).expectError(DiscoveredItemNotFoundException.class).verify();
+        StepVerifier.create(new ClaimDiscoveredItemUseCase(discoveredItemRepository).execute(itemId, other, EXECUTOR)).expectError(DiscoveredItemNotFoundException.class).verify();
+
+        org.mockito.Mockito.verifyNoMoreInteractions(discoveredItemRepository);
     }
 }

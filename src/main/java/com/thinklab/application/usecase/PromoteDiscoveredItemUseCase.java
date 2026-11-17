@@ -41,10 +41,10 @@ public class PromoteDiscoveredItemUseCase {
         this.assetRegistryServicePort = assetRegistryServicePort;
     }
 
-    public Mono<DiscoveredItemResponse> execute(UUID id, String executor) {
+    public Mono<DiscoveredItemResponse> execute(UUID id, UUID organisationId, String executor) {
         log.info("[USE CASE] Promoting discovered item ID: {}", id);
 
-        return discoveredItemRepository.findById(id)
+        return discoveredItemRepository.findById(id, organisationId)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
                     // Step 1: reserve. A guarded write on the status and updatedAt that were read: of simultaneous promotions only one passes, the rest

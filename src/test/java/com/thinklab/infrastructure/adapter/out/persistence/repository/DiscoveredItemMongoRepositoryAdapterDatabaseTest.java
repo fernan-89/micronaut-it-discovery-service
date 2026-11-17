@@ -40,7 +40,7 @@ class DiscoveredItemMongoRepositoryAdapterDatabaseTest {
     void usesTheConfiguredDatabase() {
         MongoClient client = clientServing("discovery_inventory");
 
-        new DiscoveredItemMongoRepositoryAdapter(client, "mongodb://mongo:27017/discovery_inventory").findById(UUID.randomUUID()).block();
+        new DiscoveredItemMongoRepositoryAdapter(client, "mongodb://mongo:27017/discovery_inventory").findById(UUID.randomUUID(), UUID.randomUUID()).block();
 
         verify(client).getDatabase("discovery_inventory");
     }
@@ -50,7 +50,7 @@ class DiscoveredItemMongoRepositoryAdapterDatabaseTest {
     void fallsBackToTheDefaultDatabase() {
         MongoClient client = clientServing(DiscoveredItemMongoRepositoryAdapter.DEFAULT_DATABASE);
 
-        new DiscoveredItemMongoRepositoryAdapter(client, "mongodb://mongo:27017").findById(UUID.randomUUID()).block();
+        new DiscoveredItemMongoRepositoryAdapter(client, "mongodb://mongo:27017").findById(UUID.randomUUID(), UUID.randomUUID()).block();
 
         verify(client).getDatabase(DiscoveredItemMongoRepositoryAdapter.DEFAULT_DATABASE);
     }

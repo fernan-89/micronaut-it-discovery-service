@@ -24,7 +24,7 @@ public interface DiscoveredItemRepository {
 
     Mono<DiscoveredItem> create(DiscoveredItem item);
 
-    Mono<DiscoveredItem> findById(UUID id);
+    Mono<DiscoveredItem> findById(UUID id, UUID organisationId);
 
     /**
      * The idempotent-ingestion lookup key. Called by {@code InitiateDiscoveredItemUseCase} before

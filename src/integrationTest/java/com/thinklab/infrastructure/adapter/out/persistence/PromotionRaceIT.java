@@ -94,13 +94,13 @@ class PromotionRaceIT implements TestPropertyProvider {
         int before = registry.created.get();
 
         List<String> outcomes = Flux.range(0, 10)
-                .flatMap(i -> promote.execute(item.getId(), EXECUTOR).map(r -> "OK").onErrorResume(e -> Mono.just(e.getClass().getSimpleName())), 10)
+                .flatMap(i -> promote.execute(item.getId(), item.getOrganisationId(), EXECUTOR).map(r -> "OK").onErrorResume(e -> Mono.just(e.getClass().getSimpleName())), 10)
                 .collectList().block(Duration.ofSeconds(30));
 
         assertEquals(1, outcomes.stream().filter("OK"::equals).count(), outcomes.toString());
         assertEquals(9, outcomes.stream().filter(InvalidDiscoveredItemStatusException.class.getSimpleName()::equals).count(), outcomes.toString());
         assertEquals(1, registry.created.get() - before, "only one Asset may be created for one item");
-        DiscoveredItem stored = repository.findById(item.getId()).block();
+        DiscoveredItem stored = repository.findById(item.getId(), item.getOrganisationId()).block();
         assertEquals(DiscoveredItemStatus.PROMOTED, stored.getStatus());
         assertNotNull(stored.getPromotedAssetId());
     }
@@ -111,11 +111,11 @@ class PromotionRaceIT implements TestPropertyProvider {
         DiscoveredItem item = underReview("race-2");
         registry.failNext = true;
 
-        assertTrue(Mono.from(promote.execute(item.getId(), EXECUTOR)).map(r -> false).onErrorReturn(true).block());
-        DiscoveredItem back = repository.findById(item.getId()).block();
+        assertTrue(Mono.from(promote.execute(item.getId(), item.getOrganisationId(), EXECUTOR)).map(r -> false).onErrorReturn(true).block());
+        DiscoveredItem back = repository.findById(item.getId(), item.getOrganisationId()).block();
         assertEquals(DiscoveredItemStatus.UNDER_REVIEW, back.getStatus());
         assertNull(back.getPromotedAssetId());
 
-        assertEquals("PROMOTED", promote.execute(item.getId(), EXECUTOR).block().status());
+        assertEquals("PROMOTED", promote.execute(item.getId(), item.getOrganisationId(), EXECUTOR).block().status());
     }
 }

@@ -26,10 +26,10 @@ public class ClaimDiscoveredItemUseCase {
         this.discoveredItemRepository = discoveredItemRepository;
     }
 
-    public Mono<Void> execute(UUID id, String executor) {
+    public Mono<Void> execute(UUID id, UUID organisationId, String executor) {
         log.info("[USE CASE] Claiming discovered item for review, ID: {}", id);
 
-        return discoveredItemRepository.findById(id)
+        return discoveredItemRepository.findById(id, organisationId)
                 .switchIfEmpty(Mono.error(new DiscoveredItemNotFoundException(id)))
                 .flatMap(item -> {
                     DiscoveredItemStatus statusBefore = item.getStatus();
