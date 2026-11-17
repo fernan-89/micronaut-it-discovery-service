@@ -20,5 +20,5 @@ public interface AssetRegistryServicePort {
                               Map<String, String> specifications, String executor);
 
     /** A {@code matchedAssetId} was recorded: promotion updates the existing Asset instead. */
-    Mono<UUID> updateAsset(UUID assetId, String name, Map<String, String> specifications, String executor);
+    Mono<UUID> updateAsset(UUID organisationId, UUID assetId, String name, Map<String, String> specifications, String executor);
 }

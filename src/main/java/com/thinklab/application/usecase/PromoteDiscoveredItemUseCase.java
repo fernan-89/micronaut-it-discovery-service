@@ -86,6 +86,6 @@ public class PromoteDiscoveredItemUseCase {
             return assetRegistryServicePort.initiateAsset(item.getOrganisationId(), item.getSuggestedCategory(),
                     item.getName(), item.getExternalKey(), item.getRawAttributes(), executor);
         }
-        return assetRegistryServicePort.updateAsset(item.getMatchedAssetId(), item.getName(), item.getRawAttributes(), executor);
+        return assetRegistryServicePort.updateAsset(item.getOrganisationId(), item.getMatchedAssetId(), item.getName(), item.getRawAttributes(), executor);
     }
 }

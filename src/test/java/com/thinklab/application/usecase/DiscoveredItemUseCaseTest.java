@@ -292,7 +292,7 @@ class DiscoveredItemUseCaseTest {
                 })
                 .verifyComplete();
 
-        verify(assetRegistryServicePort, never()).updateAsset(any(), any(), any(), any());
+        verify(assetRegistryServicePort, never()).updateAsset(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -302,7 +302,7 @@ class DiscoveredItemUseCaseTest {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, matchedAssetId, EXECUTOR);
         when(discoveredItemRepository.findById(itemId)).thenReturn(Mono.just(item));
-        when(assetRegistryServicePort.updateAsset(matchedAssetId, "Mystery Box", item.getRawAttributes(), "reviewer-1"))
+        when(assetRegistryServicePort.updateAsset(item.getOrganisationId(), matchedAssetId, "Mystery Box", item.getRawAttributes(), "reviewer-1"))
                 .thenReturn(Mono.just(matchedAssetId));
         when(discoveredItemRepository.reservePromotion(eq(itemId), eq(DiscoveredItemStatus.UNDER_REVIEW), any(), any())).thenReturn(Mono.empty());
         when(discoveredItemRepository.updatePromotion(eq(itemId), eq(DiscoveredItemStatus.PROMOTING), eq(DiscoveredItemStatus.PROMOTED), eq(matchedAssetId), any())).thenReturn(Mono.empty());

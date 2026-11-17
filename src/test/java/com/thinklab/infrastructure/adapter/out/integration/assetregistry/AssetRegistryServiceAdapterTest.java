@@ -36,6 +36,7 @@ class AssetRegistryServiceAdapterTest {
 
     @Mock private AssetRegistryApiClient apiClient;
 
+    private final UUID org = UUID.randomUUID();
     private AssetRegistryServiceAdapter adapter;
 
     @BeforeEach
@@ -65,14 +66,14 @@ class AssetRegistryServiceAdapterTest {
     @DisplayName("updateAsset puts to the registry and returns the same assetId")
     void updateAsset() {
         UUID assetId = UUID.randomUUID();
-        when(apiClient.update(eq(assetId), any(), any())).thenReturn(Mono.empty());
+        when(apiClient.update(eq(assetId), eq(org.toString()), any(), any())).thenReturn(Mono.empty());
 
-        StepVerifier.create(adapter.updateAsset(assetId, "Rack Server", Map.of("mac", "AA:BB"), "op-1"))
+        StepVerifier.create(adapter.updateAsset(org, assetId, "Rack Server", Map.of("mac", "AA:BB"), "op-1"))
                 .expectNext(assetId)
                 .verifyComplete();
 
         ArgumentCaptor<UpdateAssetApiRequest> captor = ArgumentCaptor.forClass(UpdateAssetApiRequest.class);
-        verify(apiClient).update(eq(assetId), eq("op-1"), captor.capture());
+        verify(apiClient).update(eq(assetId), eq(org.toString()), eq("op-1"), captor.capture());
         assertEquals("Rack Server", captor.getValue().name());
     }
 
