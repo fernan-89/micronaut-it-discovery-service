@@ -46,14 +46,16 @@ DiscoveredItem {
 }
 suggestedCategory: LAPTOP | DESKTOP | SERVER | NETWORK_DEVICE | STORAGE_ARRAY | PERIPHERAL |
                     MOBILE_DEVICE | IOT_SENSOR | VIRTUAL_MACHINE | SOFTWARE_LICENSE
-status:   DISCOVERED | UNDER_REVIEW | PROMOTED | IGNORED
+status:   DISCOVERED | UNDER_REVIEW | PROMOTING | PROMOTED | IGNORED
 ```
 
 ### Lifecycle (ADR-030)
 
 ```text
 DISCOVERED -> UNDER_REVIEW (review/claim)
-UNDER_REVIEW -> PROMOTED (control/promote, terminal; requires a recorded suggestedCategory)
+UNDER_REVIEW -> PROMOTING (control/promote, step 1: the reservation; requires a recorded suggestedCategory)
+PROMOTING -> PROMOTED (control/promote, step 2, terminal: the Asset exists)
+PROMOTING -> UNDER_REVIEW (the Asset Registry refused, or the reservation was abandoned for 5 minutes and taken over; ADR-033)
 DISCOVERED | UNDER_REVIEW -> IGNORED (control/ignore, terminal)
 any status -> itself, refreshed (re-ingestion / RESEEN, ADR-031) - never reopens a terminal item
 ```
@@ -88,7 +90,7 @@ current status (ADR-031).
 | error_code | HTTP | Meaning |
 |---|---|---|
 | `ERR-DSC-00404` | 404 | DiscoveredItem not found |
-| `ERR-DSC-00409` | 409 | Illegal lifecycle transition, or a relayed 404/409 from `it-asset-registry-service` during promotion (ADR-032) |
+| `ERR-DSC-00409` | 409 | Illegal lifecycle transition, a simultaneous change that lost the race (guarded writes, ADR-033), or a relayed 404/409 from `it-asset-registry-service` during promotion (ADR-032) |
 | `ERR-DSC-00422` | 422 | A relayed schema-validation rejection from `it-asset-registry-service` during promotion (ADR-032); carries a `violations` array |
 | `ERR-VALIDATION-00400` | 400 | Payload/header/identifier validation failure |
 | `ERR-INTERNAL-00500` | 500 | Unexpected technical failure |
@@ -132,7 +134,7 @@ docker build -t thinklab-it-discovery-service:latest .
 ## Architecture Decision Records
 
 `docs/adr/`: 001 hexagonal reactive stack · 005 UUID identity sovereignty · 013 BIAN service domain
-conventions · 019 HTTP 409 for state conflicts · 030 promotion requires UNDER_REVIEW first · 031
+conventions · 019 HTTP 409 for state conflicts · 030 promotion requires UNDER_REVIEW first · 033 guarded writes and a promotion reservation · 031
 idempotent re-ingestion never resurrects terminal items · 032 synchronous promotion integration and
 its error-relay rule.
 

@@ -33,7 +33,8 @@ class DiscoveredItemDocumentTest {
         item.claim("ops");
         item.updateReview(AssetCategory.SERVER, matchedAssetId, "ops");
         UUID promotedAssetId = UUID.randomUUID();
-        item.promote(promotedAssetId, "ops");
+        item.reservePromotion("ops", java.time.Instant.now());
+        item.completePromotion(promotedAssetId, "ops");
 
         DiscoveredItemDocument doc = DiscoveredItemPersistenceMapper.toDocument(item);
         DiscoveredItem restored = DiscoveredItemPersistenceMapper.toDomain(doc);
@@ -41,7 +42,7 @@ class DiscoveredItemDocumentTest {
         assertEquals(id, doc.getId());
         assertEquals("PROMOTED", doc.getStatus());
         assertEquals("SERVER", doc.getSuggestedCategory());
-        assertEquals(4, doc.getAuditTrail().size());
+        assertEquals(5, doc.getAuditTrail().size());
         assertEquals(id, restored.getId());
         assertEquals(organisationId, restored.getOrganisationId());
         assertEquals("manual", restored.getSource());

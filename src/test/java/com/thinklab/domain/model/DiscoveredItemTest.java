@@ -295,7 +295,8 @@ class DiscoveredItemTest {
         DiscoveredItem promoted = DiscoveredItem.ingest(UUID.randomUUID(), organisationId, "s", "k2", "n", null, EXECUTOR);
         promoted.claim(EXECUTOR);
         promoted.updateReview(AssetCategory.SERVER, null, EXECUTOR);
-        promoted.promote(UUID.randomUUID(), EXECUTOR);
+        promoted.reservePromotion(EXECUTOR, Instant.now());
+        promoted.completePromotion(UUID.randomUUID(), EXECUTOR);
         assertThrows(InvalidDiscoveredItemStatusException.class, () -> promoted.ignore(EXECUTOR));
     }
 
@@ -306,51 +307,111 @@ class DiscoveredItemTest {
         assertThrows(IllegalArgumentException.class, () -> item.ignore(" "));
     }
 
-    // ---------------------------------------------------------------- control/promote
+    // ---------------------------------------------------------------- control/promote (reserve, then complete or release)
 
-    @Test
-    @DisplayName("Should promote an UNDER_REVIEW item with a suggestedCategory (terminal)")
-    void shouldPromote() {
+    private void underReviewWithCategory() {
         item.claim(EXECUTOR);
         item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
+    }
+
+    @Test
+    @DisplayName("Should reserve an UNDER_REVIEW item with a suggestedCategory, then complete the promotion (terminal)")
+    void shouldReserveAndComplete() {
+        underReviewWithCategory();
         UUID promotedAssetId = UUID.randomUUID();
 
-        DiscoveredItemAuditEntry entry = item.promote(promotedAssetId, "reviewer-1");
+        DiscoveredItemAuditEntry reserved = item.reservePromotion("reviewer-1", Instant.now());
+        assertEquals(DiscoveredItemStatus.PROMOTING, item.getStatus());
+        assertEquals("PROMOTION_RESERVED", reserved.action());
+        assertEquals(DiscoveredItemStatus.UNDER_REVIEW, reserved.fromStatus());
+        assertEquals(DiscoveredItemStatus.PROMOTING, reserved.toStatus());
+
+        DiscoveredItemAuditEntry entry = item.completePromotion(promotedAssetId, "reviewer-1");
 
         assertEquals(DiscoveredItemStatus.PROMOTED, item.getStatus());
         assertEquals(promotedAssetId, item.getPromotedAssetId());
         assertEquals("PROMOTED", entry.action());
-        assertEquals(DiscoveredItemStatus.UNDER_REVIEW, entry.fromStatus());
+        assertEquals(DiscoveredItemStatus.PROMOTING, entry.fromStatus());
         assertEquals(DiscoveredItemStatus.PROMOTED, entry.toStatus());
         assertTrue(entry.detail().contains(promotedAssetId.toString()));
     }
 
     @Test
-    @DisplayName("Should reject promotion when not UNDER_REVIEW")
-    void shouldRejectPromoteWhenNotUnderReview() {
+    @DisplayName("Should reject a reservation when not UNDER_REVIEW, and while another promotion holds the item")
+    void shouldRejectReserveWhenNotUnderReview() {
         InvalidDiscoveredItemStatusException ex = assertThrows(InvalidDiscoveredItemStatusException.class,
-                () -> item.promote(UUID.randomUUID(), EXECUTOR));
+                () -> item.reservePromotion(EXECUTOR, Instant.now()));
         assertEquals("ERR-DSC-00409", ex.getErrorCode());
+
+        underReviewWithCategory();
+        item.reservePromotion(EXECUTOR, Instant.now());
+        assertThrows(InvalidDiscoveredItemStatusException.class, () -> item.reservePromotion(EXECUTOR, Instant.now()));
     }
 
     @Test
-    @DisplayName("Should reject promotion without a recorded suggestedCategory")
-    void shouldRejectPromoteWithoutSuggestedCategory() {
+    @DisplayName("Should let a reservation older than the lease be taken over, and refuse one younger than it")
+    void shouldTakeOverAnAbandonedReservation() {
+        underReviewWithCategory();
+        item.reservePromotion(EXECUTOR, Instant.now());
+        Instant justInsideTheLease = item.getUpdatedAt().plus(DiscoveredItem.PROMOTION_LEASE);
+        Instant afterTheLease = item.getUpdatedAt().plus(DiscoveredItem.PROMOTION_LEASE).plusMillis(1);
+
+        assertThrows(InvalidDiscoveredItemStatusException.class, () -> item.reservePromotion("other", justInsideTheLease));
+        DiscoveredItemAuditEntry takeover = item.reservePromotion("other", afterTheLease);
+
+        assertEquals(DiscoveredItemStatus.PROMOTING, item.getStatus());
+        assertEquals(DiscoveredItemStatus.PROMOTING, takeover.fromStatus());
+        assertEquals("other", takeover.executor());
+    }
+
+    @Test
+    @DisplayName("Should reject a reservation without a recorded suggestedCategory")
+    void shouldRejectReserveWithoutSuggestedCategory() {
         item.claim(EXECUTOR);
 
         InvalidDiscoveredItemStatusException ex = assertThrows(InvalidDiscoveredItemStatusException.class,
-                () -> item.promote(UUID.randomUUID(), EXECUTOR));
+                () -> item.reservePromotion(EXECUTOR, Instant.now()));
         assertTrue(ex.getMessage().contains("suggestedCategory"));
     }
 
     @Test
-    @DisplayName("Should reject promotion without an executor or with a null promotedAssetId")
-    void shouldRejectPromoteWithInvalidArguments() {
-        item.claim(EXECUTOR);
-        item.updateReview(AssetCategory.SERVER, null, EXECUTOR);
+    @DisplayName("Should reject a reservation without an executor, and completion with invalid arguments or outside a promotion")
+    void shouldRejectInvalidArguments() {
+        underReviewWithCategory();
+        assertThrows(IllegalArgumentException.class, () -> item.reservePromotion(null, Instant.now()));
+        assertThrows(IllegalArgumentException.class, () -> item.reservePromotion(" ", Instant.now()));
 
-        assertThrows(NullPointerException.class, () -> item.promote(null, EXECUTOR));
-        assertThrows(IllegalArgumentException.class, () -> item.promote(UUID.randomUUID(), null));
-        assertThrows(IllegalArgumentException.class, () -> item.promote(UUID.randomUUID(), " "));
+        assertThrows(InvalidDiscoveredItemStatusException.class, () -> item.completePromotion(UUID.randomUUID(), EXECUTOR));
+        item.reservePromotion(EXECUTOR, Instant.now());
+        assertThrows(NullPointerException.class, () -> item.completePromotion(null, EXECUTOR));
+        assertThrows(IllegalArgumentException.class, () -> item.completePromotion(UUID.randomUUID(), null));
+        assertThrows(IllegalArgumentException.class, () -> item.completePromotion(UUID.randomUUID(), " "));
+    }
+
+    @Test
+    @DisplayName("Should release a reservation back to UNDER_REVIEW, and only from PROMOTING")
+    void shouldReleaseAReservation() {
+        underReviewWithCategory();
+        assertThrows(InvalidDiscoveredItemStatusException.class, () -> item.releasePromotion(EXECUTOR));
+        item.reservePromotion(EXECUTOR, Instant.now());
+
+        DiscoveredItemAuditEntry released = item.releasePromotion(EXECUTOR);
+
+        assertEquals(DiscoveredItemStatus.UNDER_REVIEW, item.getStatus());
+        assertEquals("PROMOTION_RELEASED", released.action());
+        assertEquals(DiscoveredItemStatus.PROMOTING, released.fromStatus());
+        assertThrows(IllegalArgumentException.class, () -> item.releasePromotion(null));
+        assertNull(item.getPromotedAssetId());
+    }
+
+    @Test
+    @DisplayName("Should refuse to ignore or review an item while it is being promoted")
+    void shouldRefuseChangesWhilePromoting() {
+        underReviewWithCategory();
+        item.reservePromotion(EXECUTOR, Instant.now());
+
+        InvalidDiscoveredItemStatusException ignore = assertThrows(InvalidDiscoveredItemStatusException.class, () -> item.ignore(EXECUTOR));
+        assertTrue(ignore.getMessage().contains("being promoted"));
+        assertThrows(InvalidDiscoveredItemStatusException.class, () -> item.updateReview(AssetCategory.LAPTOP, null, EXECUTOR));
     }
 }

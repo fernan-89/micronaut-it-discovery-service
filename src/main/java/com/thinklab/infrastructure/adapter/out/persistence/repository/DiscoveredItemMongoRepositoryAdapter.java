@@ -11,6 +11,7 @@ import com.mongodb.reactivestreams.client.MongoCollection;
 import io.micronaut.context.annotation.Property;
 import com.thinklab.domain.exception.DiscoveredItemNotFoundException;
 import com.thinklab.domain.exception.DuplicateDiscoveredItemException;
+import com.thinklab.domain.exception.InvalidDiscoveredItemStatusException;
 import com.thinklab.domain.model.DiscoveredItem;
 import com.thinklab.domain.model.DiscoveredItem.AssetCategory;
 import com.thinklab.domain.model.DiscoveredItem.DiscoveredItemAuditEntry;
@@ -168,8 +169,8 @@ public class DiscoveredItemMongoRepositoryAdapter implements DiscoveredItemRepos
     }
 
     @Override
-    public Mono<Void> updateReview(UUID id, AssetCategory suggestedCategory, UUID matchedAssetId, DiscoveredItemAuditEntry auditEntry) {
-        log.debug("[PERSISTENCE] Partial Mutation: updateReview for ID: {}", id);
+    public Mono<Void> updateReview(UUID id, DiscoveredItemStatus expectedStatus, AssetCategory suggestedCategory, UUID matchedAssetId, DiscoveredItemAuditEntry auditEntry) {
+        log.debug("[PERSISTENCE] Guarded Mutation: updateReview for ID: {}", id);
 
         Bson update = Updates.combine(
                 Updates.set("suggestedCategory", suggestedCategory != null ? suggestedCategory.name() : null),
@@ -178,12 +179,12 @@ public class DiscoveredItemMongoRepositoryAdapter implements DiscoveredItemRepos
                 Updates.push(FIELD_AUDIT_TRAIL, AuditEntryDocument.fromDomain(auditEntry))
         );
 
-        return executeUpdate(id, update);
+        return executeGuardedUpdate(id, Filters.eq("status", expectedStatus.name()), update);
     }
 
     @Override
-    public Mono<Void> updateStatus(UUID id, DiscoveredItemStatus status, DiscoveredItemAuditEntry auditEntry) {
-        log.debug("[PERSISTENCE] Partial Mutation: updateStatus for ID: {}", id);
+    public Mono<Void> updateStatus(UUID id, DiscoveredItemStatus expectedStatus, DiscoveredItemStatus status, DiscoveredItemAuditEntry auditEntry) {
+        log.debug("[PERSISTENCE] Guarded Mutation: updateStatus for ID: {}", id);
 
         Bson update = Updates.combine(
                 Updates.set("status", status.name()),
@@ -191,12 +192,25 @@ public class DiscoveredItemMongoRepositoryAdapter implements DiscoveredItemRepos
                 Updates.push(FIELD_AUDIT_TRAIL, AuditEntryDocument.fromDomain(auditEntry))
         );
 
-        return executeUpdate(id, update);
+        return executeGuardedUpdate(id, Filters.eq("status", expectedStatus.name()), update);
     }
 
     @Override
-    public Mono<Void> updatePromotion(UUID id, DiscoveredItemStatus status, UUID promotedAssetId, DiscoveredItemAuditEntry auditEntry) {
-        log.debug("[PERSISTENCE] Partial Mutation: updatePromotion for ID: {}", id);
+    public Mono<Void> reservePromotion(UUID id, DiscoveredItemStatus expectedStatus, Instant expectedUpdatedAt, DiscoveredItemAuditEntry auditEntry) {
+        log.debug("[PERSISTENCE] Guarded Mutation: reservePromotion for ID: {}", id);
+
+        Bson update = Updates.combine(
+                Updates.set("status", DiscoveredItemStatus.PROMOTING.name()),
+                Updates.set(FIELD_UPDATED_AT, auditEntry.occurredAt()),
+                Updates.push(FIELD_AUDIT_TRAIL, AuditEntryDocument.fromDomain(auditEntry))
+        );
+
+        return executeGuardedUpdate(id, Filters.and(Filters.eq("status", expectedStatus.name()), Filters.eq(FIELD_UPDATED_AT, expectedUpdatedAt)), update);
+    }
+
+    @Override
+    public Mono<Void> updatePromotion(UUID id, DiscoveredItemStatus expectedStatus, DiscoveredItemStatus status, UUID promotedAssetId, DiscoveredItemAuditEntry auditEntry) {
+        log.debug("[PERSISTENCE] Guarded Mutation: updatePromotion for ID: {}", id);
 
         Bson update = Updates.combine(
                 Updates.set("status", status.name()),
@@ -205,7 +219,22 @@ public class DiscoveredItemMongoRepositoryAdapter implements DiscoveredItemRepos
                 Updates.push(FIELD_AUDIT_TRAIL, AuditEntryDocument.fromDomain(auditEntry))
         );
 
-        return executeUpdate(id, update);
+        return executeGuardedUpdate(id, Filters.eq("status", expectedStatus.name()), update);
+    }
+
+    /** A guarded write: no match is a conflict when the item exists (someone else changed it since it was read), a 404 when it does not. */
+    private Mono<Void> executeGuardedUpdate(UUID id, Bson guard, Bson update) {
+        return Mono.from(getCollection().updateOne(Filters.and(Filters.eq(FIELD_ID, id), guard), update))
+                .flatMap(result -> {
+                    if (result.getMatchedCount() > 0) {
+                        return Mono.<Void>empty();
+                    }
+                    return Mono.from(getCollection().countDocuments(Filters.eq(FIELD_ID, id)))
+                            .flatMap(count -> count == 0
+                                    ? Mono.<Void>error(new DiscoveredItemNotFoundException(id))
+                                    : Mono.<Void>error(new InvalidDiscoveredItemStatusException(
+                                            "The item was changed by someone else while this change was being recorded; read it again and retry.")));
+                });
     }
 
     /**

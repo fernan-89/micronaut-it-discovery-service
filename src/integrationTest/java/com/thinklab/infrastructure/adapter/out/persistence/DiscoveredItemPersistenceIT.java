@@ -107,7 +107,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         DiscoveredItemAuditEntry entry = new DiscoveredItemAuditEntry(Instant.now(), "REVIEW_UPDATED", EXECUTOR,
                 DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.DISCOVERED, "reviewed");
 
-        repository.updateReview(created.getId(), AssetCategory.SERVER, matchedAssetId, entry).block();
+        repository.updateReview(created.getId(), DiscoveredItemStatus.DISCOVERED, AssetCategory.SERVER, matchedAssetId, entry).block();
 
         DiscoveredItem found = repository.findById(created.getId()).block();
         assertEquals(AssetCategory.SERVER, found.getSuggestedCategory());
@@ -121,7 +121,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         DiscoveredItemAuditEntry entry = new DiscoveredItemAuditEntry(Instant.now(), "CLAIMED", EXECUTOR,
                 DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, "claimed");
 
-        repository.updateStatus(created.getId(), DiscoveredItemStatus.UNDER_REVIEW, entry).block();
+        repository.updateStatus(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, entry).block();
 
         DiscoveredItem found = repository.findById(created.getId()).block();
         assertEquals(DiscoveredItemStatus.UNDER_REVIEW, found.getStatus());
@@ -135,7 +135,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         DiscoveredItemAuditEntry entry = new DiscoveredItemAuditEntry(Instant.now(), "PROMOTED", EXECUTOR,
                 DiscoveredItemStatus.UNDER_REVIEW, DiscoveredItemStatus.PROMOTED, "promoted");
 
-        repository.updatePromotion(created.getId(), DiscoveredItemStatus.PROMOTED, promotedAssetId, entry).block();
+        repository.updatePromotion(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.PROMOTED, promotedAssetId, entry).block();
 
         DiscoveredItem found = repository.findById(created.getId()).block();
         assertEquals(DiscoveredItemStatus.PROMOTED, found.getStatus());
@@ -174,8 +174,8 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
         repository.create(newItem(UUID.randomUUID(), "manual", "key-11")).block();
         DiscoveredItemAuditEntry entry = new DiscoveredItemAuditEntry(Instant.now(), "REVIEW_UPDATED", EXECUTOR,
                 DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.DISCOVERED, "reviewed");
-        repository.updateReview(laptop.getId(), AssetCategory.LAPTOP, null, entry).block();
-        repository.updateReview(server.getId(), AssetCategory.SERVER, null, entry).block();
+        repository.updateReview(laptop.getId(), DiscoveredItemStatus.DISCOVERED, AssetCategory.LAPTOP, null, entry).block();
+        repository.updateReview(server.getId(), DiscoveredItemStatus.DISCOVERED, AssetCategory.SERVER, null, entry).block();
 
         assertEquals(Set.of(laptop.getId(), server.getId()),
                 ids(repository.findAllByOrganisationId(organisation, null, null, null).collectList().block()));
@@ -195,7 +195,7 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
                 DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, "x");
 
         assertNull(repository.findById(unknown).block());
-        assertThrows(DiscoveredItemNotFoundException.class, () -> repository.updateStatus(unknown, DiscoveredItemStatus.UNDER_REVIEW, entry).block());
+        assertThrows(DiscoveredItemNotFoundException.class, () -> repository.updateStatus(unknown, DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, entry).block());
     }
 
     @Test
@@ -213,5 +213,21 @@ class DiscoveredItemPersistenceIT implements TestPropertyProvider {
 
     private static Set<UUID> ids(List<DiscoveredItem> list) {
         return list.stream().map(DiscoveredItem::getId).collect(Collectors.toSet());
+    }
+
+    @Test
+    @DisplayName("a guarded write applies only if the item still has the status that was read: otherwise 409, and a 404 only when the item does not exist")
+    void guardedWrites() {
+        DiscoveredItem created = repository.create(newItem(UUID.randomUUID(), "manual", "key-guard")).block();
+        DiscoveredItemAuditEntry entry = new DiscoveredItemAuditEntry(Instant.now(), "CLAIMED", EXECUTOR,
+                DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, "claimed");
+
+        repository.updateStatus(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.UNDER_REVIEW, entry).block();
+
+        assertThrows(com.thinklab.domain.exception.InvalidDiscoveredItemStatusException.class,
+                () -> repository.updateStatus(created.getId(), DiscoveredItemStatus.DISCOVERED, DiscoveredItemStatus.IGNORED, entry).block());
+        assertEquals(DiscoveredItemStatus.UNDER_REVIEW, repository.findById(created.getId()).block().getStatus());
+        assertThrows(com.thinklab.domain.exception.InvalidDiscoveredItemStatusException.class,
+                () -> repository.reservePromotion(created.getId(), DiscoveredItemStatus.UNDER_REVIEW, Instant.parse("2020-01-01T00:00:00Z"), entry).block());
     }
 }
