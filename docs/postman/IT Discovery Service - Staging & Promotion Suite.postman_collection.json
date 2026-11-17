@@ -514,7 +514,7 @@
           }
         },
         {
-          "name": "09. Retrieve Audit Ledger (in order, ending with PROMOTED)",
+          "name": "09. Retrieve Audit Ledger (in order, PROMOTION_RESERVED then PROMOTED)",
           "event": [
             {
               "listen": "test",
@@ -524,8 +524,9 @@
                   "pm.test('Status is 200 OK', () => pm.response.to.have.status(200));",
                   "const json = pm.response.json();",
                   "pm.test('Ledger records every mutation in order', () => {",
-                  "    pm.expect(json).to.be.an('array').with.lengthOf(5);",
+                  "    pm.expect(json).to.be.an('array').with.lengthOf(6);",
                   "    pm.expect(json[0].action).to.eql('DISCOVERED');",
+                  "    pm.expect(json[json.length - 2].action).to.eql('PROMOTION_RESERVED');",
                   "    pm.expect(json[json.length - 1].action).to.eql('PROMOTED');",
                   "});"
                 ]
